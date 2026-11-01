@@ -40,9 +40,9 @@ final class BlockOverlay {
     private LinearLayout normalBox, warnBox, pinBox, xtrBox;
     private TextView lblTv, subTv, statusTv, emLabel, emInfo, warnDetail, pinDots, pinMsg;
     private Ui.Bar bar;
-    private Button btnStd, btnPwd, btnXtr, btnXtrGo, btnWarnCancel, btnRepair;
+    private Button btnStd, btnPwd, btnXtr, btnXtrGo, btnWarnCancel, btnRepair, btnJoker;
     private boolean closing = false;
-    private boolean confirmStd = false;
+    private boolean confirmStd = false, confirmJoker = false;
     private int mode = MODE_NORMAL;
     private long warnShownAt;
     private final StringBuilder pin = new StringBuilder();
@@ -84,6 +84,7 @@ final class BlockOverlay {
         }
         closing = false;
         confirmStd = false;
+        confirmJoker = false;
         setMode(MODE_NORMAL);
         String name = pkg != null ? Apps.label(svc, pkg) : L.t("Cette application", "This app");
         subTv.setText(name + (Prefs.sessionActive(svc)
@@ -191,6 +192,11 @@ final class BlockOverlay {
         normalBox.addView(btnStd);
         normalBox.addView(btnPwd);
         normalBox.addView(btnXtr);
+        btnJoker = emButton(c);
+        normalBox.addView(btnJoker);
+        btnJoker.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { onJoker(); }
+        });
         btnStd.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { onStandard(); }
         });
@@ -475,9 +481,36 @@ final class BlockOverlay {
             btnXtr.setTextColor(usedX ? Ui.MUTED : Ui.RED);
             Ui.enable(btnXtr, !usedX);
         }
-        boolean any = std || pwd || xtr;
+        int jk = Jokers.count(svc);
+        btnJoker.setVisibility(jk > 0 ? View.VISIBLE : View.GONE);
+        if (jk > 0) {
+            btnJoker.setText("🃏  " + (confirmJoker ? L.t("Touche encore pour confirmer — ", "Tap again to confirm — ") + Jokers.MINUTES + " min"
+                    : L.t("Utiliser un joker — ", "Use a joker — ") + Jokers.MINUTES + L.t(" min libres (", " free min (") + jk + ")"));
+            btnJoker.setTextColor(Ui.GREEN);
+            Ui.enable(btnJoker, Jokers.usable(svc));
+        }
+        boolean any = std || pwd || xtr || jk > 0;
         emLabel.setText(any ? L.t("BESOIN D'UNE URGENCE ?", "NEED AN EMERGENCY?")
                 : L.t("AUCUNE URGENCE ACTIVÉE (RÉGLABLE DANS ANKINEER LOCK → URGENCE)", "NO EMERGENCY ENABLED (SET IT IN ANKINEER LOCK → EMERGENCY)"));
+    }
+
+    /** Joker: two taps (an accidental tap must not be enough). */
+    private void onJoker() {
+        if (!confirmJoker) {
+            confirmJoker = Jokers.usable(svc);
+        } else {
+            confirmJoker = false;
+            if (Jokers.use(svc)) {
+                closing = true;
+                statusTv.setText("🃏 " + L.t("Joker utilisé : libre jusqu'à ", "Joker used: free until ") + Prefs.hhmm(Prefs.emergencyUntil(svc)));
+                statusTv.setTextColor(Ui.GREEN);
+                h.postDelayed(new Runnable() {
+                    @Override public void run() { hide(); }
+                }, 2000);
+                return;
+            }
+        }
+        updateState();
     }
 
     private void onStandard() {

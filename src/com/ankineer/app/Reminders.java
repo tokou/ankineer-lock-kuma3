@@ -15,12 +15,15 @@ import java.util.Calendar;
 /**
  * Hourly reminders (two separate notifications):
  *  1. "You still have N due cards" (if any are left);
- *  2. "Minimum goal not reached yet" (cards / minutes).
+ *  2. "Minimum goal not reached yet" (cards / minutes);
+ * plus the Sunday weekly summary (this week vs the previous one) and the "joker earned" notification.
  * Adjustable quiet hours (no reminder at night). Scheduled with AlarmManager, rescheduled after a reboot.
  */
 final class Reminders {
     static final String CHANNEL = "ankineer_reminders";
-    static final int ID_DUE = 41, ID_GOAL = 42, ID_SERVICE = 43;
+    static final int ID_DUE = 41, ID_GOAL = 42, ID_SERVICE = 43, ID_WEEK = 44, ID_JOKER = 45, ID_TUTO = 46;
+    /** Weekly summary: Sunday, from this hour on (first hourly run outside quiet hours). */
+    static final int WEEKLY_HOUR = 18;
     static final String PERM = "android.permission.POST_NOTIFICATIONS";
     static final String ACTION = "com.ankineer.app.REMINDER";
     /** "Service off" alert: at every hourly reminder (margin for alarm drift), instead of every 3 h. */
@@ -37,6 +40,8 @@ final class Reminders {
     static void setDueOn(Context c, boolean on) { sp(c).edit().putBoolean("remDue", on).apply(); }
     static boolean goalOn(Context c) { return sp(c).getBoolean("remGoal", true); }
     static boolean quoteOn(Context c) { return sp(c).getBoolean("remQuote", true); }
+    static boolean weeklyOn(Context c) { return sp(c).getBoolean("remWeek", true); }
+    static void setWeeklyOn(Context c, boolean on) { sp(c).edit().putBoolean("remWeek", on).apply(); }
     static void setQuoteOn(Context c, boolean on) { sp(c).edit().putBoolean("remQuote", on).apply(); }
 
     /** Adds the motivational quote of the hour (if the option is on). */
@@ -168,10 +173,11 @@ final class Reminders {
         }
         // 2) objectif minimum
         if ((goalOn(c) || force) && !r.dailyMet && !Prefs.goalDoneToday(c)) {
-            int lc = Math.max(0, r.goalCards - r.cards), lm = Math.max(0, r.goalMinutes - r.minutes);
+            int lc = r.needCards ? Math.max(0, r.goalCards - r.cards) : 0, lm = r.needMinutes ? Math.max(0, r.goalMinutes - r.minutes) : 0;
             String left = (lc > 0 ? lc + L.t(" cartes", " cards") : "") + (lc > 0 && lm > 0 ? L.t(" et ", " and ") : "") + (lm > 0 ? lm + " min" : "");
             notify(c, nm, ID_GOAL, "🎯 " + L.t("Objectif minimum pas encore atteint", "Minimum goal not reached yet"),
-                    withQuote(c, L.t("Cartes ", "Cards ") + r.cards + "/" + r.goalCards + "  ·  Minutes " + r.minutes + "/" + r.goalMinutes
+                    withQuote(c, (r.needCards ? L.t("Cartes ", "Cards ") + r.cards + "/" + r.goalCards : "") + (r.needCards && r.needMinutes ? "  ·  " : "")
+                            + (r.needMinutes ? "Minutes " + r.minutes + "/" + r.goalMinutes : "")
                             + (left.length() > 0 ? L.t("  —  encore ", "  —  ") + left + L.t("", " to go") : ""), 1), true);
         } else {
             nm.cancel(ID_GOAL);
@@ -180,7 +186,68 @@ final class Reminders {
             notify(c, nm, ID_GOAL, "✓ " + L.t("Tout est fait pour aujourd'hui", "All done for today"),
                     L.t("Aucun rappel nécessaire : bravo !", "No reminder needed: well done!"), false);
         }
+        weekly(c, nm, force);
         WidgetUpdater.updateAll(c, true);
+    }
+
+    /** Sunday evening: this week (Monday → today) compared with the previous one. Once a week; {@code force} = test. */
+    private static void weekly(Context c, NotificationManager nm, boolean force) {
+        Calendar cal = Calendar.getInstance();
+        boolean due = cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY && cal.get(Calendar.HOUR_OF_DAY) >= WEEKLY_HOUR;
+        String today = Prefs.today();
+        if (!force && (!weeklyOn(c) || !due || today.equals(sp(c).getString("remWeekDay", "")))) return;
+        if (!force) sp(c).edit().putString("remWeekDay", today).apply();
+        int[] cur = week(c, today), prev = week(c, Stats.addDays(today, -7));
+        String body = L.t("Cartes ", "Cards ") + cur[0] + trend(cur[0], prev[0])
+                + "\nMinutes " + cur[1] + trend(cur[1], prev[1])
+                + "\n" + L.t("Objectif atteint ", "Goal reached ") + cur[2] + "/7" + L.t(" jours (semaine passée ", " days (last week ") + prev[2] + "/7)";
+        int streak = Stats.streak(c);
+        if (streak > 1) body += "\n🔥 " + L.t("Série : ", "Streak: ") + streak + L.t(" jours", " days");
+        body += "\n🃏 " + L.t("Jokers : ", "Jokers: ") + Jokers.count(c) + L.t(" · prochain dans ", " · next in ") + Jokers.daysToNext(c) + L.t(" j", " d");
+        notify(c, nm, ID_WEEK, "📊 " + L.t("Ta semaine : ", "Your week: ") + cur[0] + L.t(" cartes · ", " cards · ") + cur[1] + " min",
+                withQuote(c, body, 2), false);
+    }
+
+    /** {cards, minutes, days with the goal reached} over the 7 days ending on {@code lastDay}. */
+    private static int[] week(Context c, String lastDay) {
+        int[] t = new int[3];
+        for (int i = 0; i < 7; i++) {
+            Stats.Day d = Stats.get(c, Stats.addDays(lastDay, -i));
+            t[0] += d.cards;
+            t[1] += d.minutes;
+            if (d.met) t[2]++;
+        }
+        return t;
+    }
+
+    /** " (▲ +12 % vs 375)" */
+    private static String trend(int cur, int prev) {
+        if (prev <= 0) return cur > 0 ? L.t("  (▲ nouvelle semaine)", "  (▲ new week)") : "";
+        int pct = Math.round(100f * (cur - prev) / prev);
+        return "  (" + (pct >= 0 ? "▲ +" : "▼ ") + pct + " %" + L.t(" vs ", " vs ") + prev + ")";
+    }
+
+    /** New tutorial videos built into this update. */
+    static void tutorialsAdded(Context c, int n, String newestTitle) {
+        if (!permitted(c)) return;
+        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        L.load(c);
+        notify(c, nm, ID_TUTO, "🎬 " + (n > 1 ? n + L.t(" nouveaux tutoriels Ankineer", " new Ankineer tutorials") : L.t("Nouveau tutoriel Ankineer", "New Ankineer tutorial")),
+                "▶ " + newestTitle + "\n" + L.t("Retrouve-les dans Ankineer Lock → ☰ → Tutoriels.", "Find them in Ankineer Lock → ☰ → Tutorials."),
+                false, MainActivity.TUTORIALS);
+    }
+
+    /** Streak reward earned (one joker per full week of streak). */
+    static void jokerEarned(Context c, int n) {
+        if (!permitted(c)) return;
+        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        L.load(c);
+        notify(c, nm, ID_JOKER, "🃏 " + (n > 1 ? n + L.t(" nouveaux jokers !", " new jokers!") : L.t("Nouveau joker gagné !", "New joker earned!")),
+                L.t("7 jours d'affilée avec ton objectif : bravo ! Un joker = ", "7 days in a row with your goal: well done! One joker = ")
+                        + Jokers.MINUTES + L.t(" min de liberté, même pendant le verrou. Tu en as ", " free minutes, even while locked. You have ")
+                        + Jokers.count(c) + ".", false);
     }
 
     private static void notify(Context c, NotificationManager nm, int id, String title, String text, boolean openAnki) {
@@ -188,10 +255,14 @@ final class Reminders {
     }
 
     private static void notify(Context c, NotificationManager nm, int id, String title, String text, boolean openAnki, boolean openSetup) {
+        notify(c, nm, id, title, text, openAnki, openSetup ? MainActivity.INSTALL : -1);
+    }
+
+    private static void notify(Context c, NotificationManager nm, int id, String title, String text, boolean openAnki, int page) {
         Notification.Builder b = builder(c, nm);
         Intent open = openAnki ? c.getPackageManager().getLaunchIntentForPackage(GoalChecker.ANKI_PKG) : null;
         if (open == null) open = new Intent(c, MainActivity.class);
-        if (openSetup) open.putExtra("page", MainActivity.INSTALL);
+        if (page >= 0) open.putExtra("page", page);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent pi = PendingIntent.getActivity(c, id, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent app = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

@@ -25,7 +25,10 @@ public class ReminderReceiver extends BroadcastReceiver {
             final PendingResult pr = goAsync();
             Ui.safeThread(c, new Runnable() {
                 @Override public void run() {
-                    try { WidgetUpdater.updateAll(c, true); } catch (Throwable ignored) {} finally { pr.finish(); }
+                    try {
+                        WidgetUpdater.updateAll(c, true);
+                        Tutorials.notifyNew(c);              // videos added by this update
+                    } catch (Throwable ignored) {} finally { pr.finish(); }
                 }
             }).start();
         }

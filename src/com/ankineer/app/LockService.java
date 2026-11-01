@@ -64,6 +64,7 @@ public class LockService extends AccessibilityService {
     private boolean wasInAnki;
     private boolean wasLocked;
     private SuccessOverlay success;
+    private UninstallOverlay uninstall;
     private long lastHomeWidgetAt;
     private long doneShownUntil;
     private long lastServerCheck;
@@ -127,6 +128,7 @@ public class LockService extends AccessibilityService {
         overlay = new BlockOverlay(this);
         widget = new ProgressWidget(this);
         success = new SuccessOverlay(this);
+        uninstall = new UninstallOverlay(this);
         // goal already reached when the service starts: no late success window
         if (Prefs.goalDoneToday(this)) Prefs.sp(this).edit().putString("celebDay", Prefs.today()).apply();
         power = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -268,11 +270,11 @@ public class LockService extends AccessibilityService {
             });
         }
 
-        if (mustBlock(pkg, Prefs.lockActive(this))) block(pkg);
-        else if (isGuardedApp(pkg)) {
+        if (isGuardedApp(pkg)) {
+            // installer: maybe the window that uninstalls Ankineer Lock (checked once its content is there)
             main.removeCallbacks(scanNow);
-            main.postDelayed(scanNow, 450);               // the screen content shows up a little after opening
-        }
+            main.postDelayed(scanNow, 300);
+        } else if (mustBlock(pkg, Prefs.lockActive(this))) block(pkg);
     }
 
     private void block(String pkg) {
@@ -308,12 +310,16 @@ public class LockService extends AccessibilityService {
     private final Runnable scanNow = new Runnable() {
         @Override public void run() {
             try {
+                if (uninstall != null && uninstall.isShowing()) return;
+                if (visibleUninstall() != null) { guardUninstall(); return; }
                 if (overlay != null && overlay.isShowing()) return;
                 boolean locked = Prefs.lockActive(LockService.this);
                 String p = locked ? visibleBlocked() : null;
-                if (p != null) { block(p); return; }
-                p = visibleProtected();
-                if (p != null) blockProtected(p);
+                if (p == null && locked) {
+                    String fg = detectForeground();
+                    if (isGuardedApp(fg) && mustBlock(fg, true)) p = fg;      // other installer screens: usual lock rules
+                }
+                if (p != null) block(p);
             } catch (Throwable ignored) {}
         }
     };
@@ -344,14 +350,12 @@ public class LockService extends AccessibilityService {
         return null;
     }
 
-    static final String PLAY_STORE = "com.android.vending";
+    /** Words of an uninstall confirmation window. */
+    private static final String[] UNINSTALL_WORDS = {"Désinstaller", "désinstaller", "Uninstall", "uninstall"};
 
-    /** Words on "App info" screens (uninstall / force stop). */
-    private static final String[] APP_INFO_WORDS = {"Désinstaller", "Uninstall", "Forcer l'arrêt", "Forcer l’arrêt", "Force stop", "Arrêt forcé"};
-
-    /** Apps that may hold a screen able to remove or turn off Ankineer Lock. */
+    /** Apps that may show the window that uninstalls Ankineer Lock. */
     private static boolean isGuardedApp(String pkg) {
-        return pkg != null && (PLAY_STORE.equals(pkg) || Apps.SETTINGS.contains(pkg) || Apps.INSTALLERS.contains(pkg));
+        return pkg != null && Apps.INSTALLERS.contains(pkg);
     }
 
     private static boolean hasText(AccessibilityNodeInfo root, String text) {
@@ -365,20 +369,11 @@ public class LockService extends AccessibilityService {
         }
     }
 
-    /**
-     * Screen to block to protect Ankineer Lock, or null.
-     *  - Strict mode + background lock: Ankineer's Play Store page (uninstall without going through the blocked screen).
-     *  - Uninstall protection (always, even when the phone is free): Play Store page, "uninstall Ankineer Lock" window,
-     *    Ankineer Lock's "App info" page (uninstall / force stop) and the service's accessibility setting.
-     */
-    private String visibleProtected() {
-        boolean strictLock = Prefs.strict(this) && Prefs.baseLocked(this);
-        boolean forever = Prefs.protectForever(this);
-        if (!strictLock && !forever) return null;
+    /** Android's window that uninstalls Ankineer Lock is on screen (locked or not): its installer package, or null. */
+    private String visibleUninstall() {
         try {
             List<AccessibilityWindowInfo> ws = getWindows();
             if (ws == null) return null;
-            String a11yLabel = getString(R.string.a11y_label);
             for (AccessibilityWindowInfo w : ws) {
                 if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
                 AccessibilityNodeInfo r = w.getRoot();
@@ -386,18 +381,11 @@ public class LockService extends AccessibilityService {
                 CharSequence cp = r.getPackageName();
                 String pkg = cp == null ? null : cp.toString();
                 boolean hit = false;
-                if (PLAY_STORE.equals(pkg)) {
-                    hit = hasText(r, "Ankineer");
-                } else if (forever && Apps.INSTALLERS.contains(pkg)) {
+                if (isGuardedApp(pkg)) {
                     String cls = lastClass.get(pkg);
                     boolean uninstall = cls != null && cls.toLowerCase(java.util.Locale.ROOT).contains("uninstall");
-                    if (!uninstall) for (String word : APP_INFO_WORDS) if (hasText(r, word)) { uninstall = true; break; }
+                    if (!uninstall) for (String word : UNINSTALL_WORDS) if (hasText(r, word)) { uninstall = true; break; }
                     hit = uninstall && hasText(r, "Ankineer");
-                } else if (forever && Apps.SETTINGS.contains(pkg) && !harmlessProtectedScreen(pkg, lastClass.get(pkg))) {
-                    if (hasText(r, a11yLabel)) hit = true;
-                    else if (hasText(r, "Ankineer Lock")) {
-                        for (String word : APP_INFO_WORDS) if (hasText(r, word)) { hit = true; break; }
-                    }
                 }
                 r.recycle();
                 if (hit) return pkg;
@@ -406,23 +394,16 @@ public class LockService extends AccessibilityService {
         return null;
     }
 
-    private long lastProtectToastAt;
-
-    /** Screen that removes / turns off Ankineer Lock: back to home (locked or not). */
-    private void blockProtected(String pkg) {
-        if (Prefs.lockActive(this)) { block(pkg); return; }
-        long now = SystemClock.elapsedRealtime();
-        if (pkg.equals(lastBlockPkg) && now - lastBlockAt < 700) return;
-        lastBlockPkg = pkg;
-        lastBlockAt = now;
+    /**
+     * Uninstalling Ankineer Lock: Android's window is closed and the 3-minute "think it over" window shows instead.
+     * Once the 3 minutes are over and the user confirms, Android's window is let through.
+     */
+    private void guardUninstall() {
+        if (UninstallOverlay.passActive(this) || uninstall == null) return;
         performGlobalAction(GLOBAL_ACTION_BACK);
-        performGlobalAction(GLOBAL_ACTION_HOME);
-        if (now - lastProtectToastAt > 4000) {
-            lastProtectToastAt = now;
-            Toast.makeText(this, Prefs.protectForever(this)
-                    ? L.t("🔒 Ankineer Lock est protégé contre la désinstallation (Paramètres → Verrou)", "🔒 Ankineer Lock is protected against uninstall (Settings → Lock)")
-                    : L.t("🔒 Impossible pendant le verrou", "🔒 Not possible while locked"), Toast.LENGTH_LONG).show();
-        }
+        if (overlay != null && overlay.isShowing()) overlay.hide();
+        if (success != null) success.hide();
+        uninstall.show();
     }
 
     /** Foreground app according to the window list (more reliable than events alone). */
@@ -501,8 +482,7 @@ public class LockService extends AccessibilityService {
         } else if (!Prefs.armed(this) && Prefs.autoArm(this)) {
             scheduleCheck(60000);                 // waiting for the automatic start
         }
-        String guarded = isGuardedApp(fg) && (overlay == null || !overlay.isShowing()) ? visibleProtected() : null;
-        if (guarded != null) blockProtected(guarded);
+        if (isGuardedApp(fg) && (uninstall == null || !uninstall.isShowing()) && visibleUninstall() != null) guardUninstall();
         else if (fg != null && mustBlock(fg, locked) && (overlay == null || !overlay.isShowing())) block(fg);
         else if (locked && (overlay == null || !overlay.isShowing())) {
             String hidden = visibleBlocked();
@@ -523,7 +503,7 @@ public class LockService extends AccessibilityService {
         updateWidget(locked, now);
 
         boolean busyTick = locked || hadSession || inAnki || (widget != null && widget.isShowing())
-                || (isGuardedApp(fg) && (Prefs.baseLocked(this) || Prefs.protectForever(this)));
+                || isGuardedApp(fg);
         nextDelay = busyTick ? TICK_MS : 4000;
     }
 
@@ -563,7 +543,7 @@ public class LockService extends AccessibilityService {
             widget.showSession(r.fSession, r.sessionTarget - Math.min(r.sessionDone, r.sessionTarget),
                     Prefs.SESSION_MINUTES.equals(r.sessionType));
         } else {
-            widget.showDaily(r.fCards, r.fMinutes, r.shortText);
+            widget.showDaily(r.needCards ? r.fCards : -1f, r.needMinutes ? r.fMinutes : -1f, r.shortText);
         }
     }
 
@@ -596,6 +576,7 @@ public class LockService extends AccessibilityService {
     private void shutdown() {
         running = false;
         if (success != null) success.hide();
+        if (uninstall != null) uninstall.hide();
         main.removeCallbacks(tick);
         flushStudy(true);
         if (overlay != null) overlay.hide();

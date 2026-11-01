@@ -39,10 +39,10 @@ final class EmergencyPage implements MainActivity.Page {
         today.addView(todayTv, Ui.topMargin(a, 8));
         a.note(today, L.t("Le code et l'extrême urgence affichent d'abord un grand avertissement en couleur : "
                         + "« Attention, c'est une autorisation exceptionnelle — il faut revenir à la révision rapidement ». "
-                        + "Pendant une urgence, le cercle en haut de l'écran devient un compte à rebours rouge.",
+                        + "Pendant une urgence, la barre en haut de l'écran devient un compte à rebours rouge.",
                 "The code and the extreme emergency first show a big coloured warning: "
                         + "“Warning, this is an exceptional permission — get back to your reviews quickly”. "
-                        + "During an emergency, the circle at the top of the screen becomes a red countdown."));
+                        + "During an emergency, the bar at the top of the screen becomes a red countdown."));
         col.addView(today);
 
         // ---- emergency with a wait (removed: the card is built but never shown)

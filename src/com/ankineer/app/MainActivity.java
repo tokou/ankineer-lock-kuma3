@@ -23,10 +23,10 @@ import java.util.Set;
 
 /**
  * Ankineer Lock — app shell: top bar, left side menu
- * (Home · Settings · Emergency · Statistics · Setup · Update · About) and pages swapped without changing screen.
+ * (Home · Settings · Emergency · Statistics · Setup · Update · Tutorials · About) and pages swapped without changing screen.
  */
 public class MainActivity extends Activity {
-    static final int HOME = 0, SETTINGS = 1, EMERGENCY = 2, STATS = 3, INSTALL = 4, UPDATE = 5, ABOUT = 6;
+    static final int HOME = 0, SETTINGS = 1, EMERGENCY = 2, STATS = 3, INSTALL = 4, UPDATE = 5, TUTORIALS = 6, ABOUT = 7;
 
     interface Page {
         View view();
@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
     final Handler ui = new Handler();
 
     /** Menu pages, in the order of the constants above: one list for the menu, the titles and the pages. */
-    static final int PAGE_COUNT = 7;
+    static final int PAGE_COUNT = 8;
     private final Page[] pages = new Page[PAGE_COUNT];
     private int current = HOME;
     private FrameLayout container;
@@ -51,10 +51,10 @@ public class MainActivity extends Activity {
 
     static String[] pageTitles() {
         return new String[]{L.t("Accueil", "Home"), L.t("Paramètres", "Settings"), L.t("Urgence", "Emergency"), L.t("Statistiques", "Statistics"),
-                L.t("Installation", "Setup"), L.t("Mise à jour", "Update"), L.t("À propos", "About")};
+                L.t("Installation", "Setup"), L.t("Mise à jour", "Update"), L.t("Tutoriels", "Tutorials"), L.t("À propos", "About")};
     }
 
-    private static final String[] PAGE_ICONS = {"🏠", "⚙", "🚨", "📅", "🧰", "⬆", "ℹ"};
+    private static final String[] PAGE_ICONS = {"🏠", "⚙", "🚨", "📅", "🧰", "⬆", "🎬", "ℹ"};
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -88,6 +88,7 @@ public class MainActivity extends Activity {
             Ui.paintWindow(this);
             Prefs.installDay(this);
             firstRunDefaults();
+            Tutorials.checkNew(this);              // videos added by an update (if not already seen by the update receiver)
             Reminders.schedule(this);
             // Android 13+: reminders need the notification permission (asked only once, here)
             if (Reminders.enabled(this) && !Reminders.permitted(this) && !Prefs.sp(this).getBoolean("notifAsked", false)) {
@@ -144,7 +145,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         int start = b != null ? b.getInt("page", HOME) : getIntent().getIntExtra("page", HOME);
-        show(Math.max(0, Math.min(ABOUT, start)));
+        show(Math.max(0, Math.min(PAGE_COUNT - 1, start)));
     }
 
     /** Rescue screen: explanation, error report to copy and Update page (to install the fix). */
@@ -318,6 +319,7 @@ public class MainActivity extends Activity {
             case STATS: return new StatsPage(this);
             case INSTALL: return new InstallPage(this);
             case UPDATE: return new UpdatePage(this);
+            case TUTORIALS: return new TutorialsPage(this);
             case ABOUT: return new AboutPage(this);
             default: return new HomePage(this);
         }
@@ -331,7 +333,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent != null && intent.hasExtra("page")) show(Math.max(0, Math.min(ABOUT, intent.getIntExtra("page", HOME))));
+        if (intent != null && intent.hasExtra("page")) show(Math.max(0, Math.min(PAGE_COUNT - 1, intent.getIntExtra("page", HOME))));
     }
 
     @Override
@@ -473,6 +475,76 @@ public class MainActivity extends Activity {
     void styleChip(Button b, boolean on) {
         b.setTextColor(on ? 0xFFFFFFFF : Ui.TEXT);
         b.setBackground(on ? Ui.round(this, Ui.ACCENT, 12, 0) : Ui.round(this, 0x00000000, 12, Ui.STROKE));
+    }
+
+    // ---- Goal mode selector (cards / minutes / both), shared by Home and Settings
+    static final String[] GOAL_MODES = {Prefs.GOAL_CARDS, Prefs.GOAL_MINUTES, Prefs.GOAL_BOTH};
+
+    static String goalModeName(String mode) {
+        return Prefs.GOAL_CARDS.equals(mode) ? L.t("Cartes", "Cards") : Prefs.GOAL_MINUTES.equals(mode) ? "Minutes" : L.t("Les deux", "Both");
+    }
+
+    /** Three chips; tapping one asks for confirmation (the mode can only be changed once a day). */
+    Button[] goalModeRow(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        final Button[] b = new Button[GOAL_MODES.length];
+        for (int i = 0; i < b.length; i++) {
+            final String mode = GOAL_MODES[i];
+            b[i] = chip((i == 0 ? "🃏 " : i == 1 ? "⏱ " : "🎯 ") + goalModeName(mode));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 42), 1f);
+            if (i > 0) lp.leftMargin = Ui.dp(this, 8);
+            row.addView(b[i], lp);
+            b[i].setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { askGoalMode(mode); }
+            });
+        }
+        parent.addView(row, Ui.topMargin(this, 10));
+        styleGoalMode(b);
+        return b;
+    }
+
+    void styleGoalMode(Button[] b) {
+        String cur = Prefs.goalMode(this);
+        boolean once = Prefs.goalModeChangedToday(this);
+        for (int i = 0; i < b.length; i++) {
+            boolean on = GOAL_MODES[i].equals(cur);
+            styleChip(b[i], on);
+            b[i].setAlpha(on || !once ? 1f : 0.45f);
+        }
+    }
+
+    private void askGoalMode(final String mode) {
+        if (mode.equals(Prefs.goalMode(this))) return;
+        if (Prefs.goalModeChangedToday(this)) { goalModeRefused(Prefs.MODE_ONCE_A_DAY); return; }
+        if (!Prefs.GOAL_BOTH.equals(mode) && !Prefs.isEditable(this)) { goalModeRefused(Prefs.MODE_LOCKED); return; }
+        String what = Prefs.GOAL_CARDS.equals(mode) ? L.t("seulement le nombre de cartes", "only the number of cards")
+                : Prefs.GOAL_MINUTES.equals(mode) ? L.t("seulement les minutes d'étude", "only study minutes")
+                : L.t("les cartes ET les minutes", "cards AND minutes");
+        new android.app.AlertDialog.Builder(this, Ui.DARK ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
+                .setTitle(L.t("Objectif : ", "Goal: ") + goalModeName(mode) + " ?")
+                .setMessage(L.t("Ton objectif du jour comptera ", "Your daily goal will count ") + what + ".\n\n"
+                        + L.t("⚠ Tu ne peux changer ce choix qu'une seule fois par jour.", "⚠ You can only change this once a day."))
+                .setPositiveButton(L.t("Confirmer", "Confirm"), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) {
+                        int res = Prefs.setGoalMode(MainActivity.this, mode);
+                        if (res == Prefs.MODE_OK) {
+                            Toast.makeText(MainActivity.this, "✓ " + L.t("Objectif : ", "Goal: ") + goalModeName(mode), Toast.LENGTH_SHORT).show();
+                            runCheck();
+                        } else {
+                            goalModeRefused(res);
+                        }
+                        safeRefresh(current);
+                    }
+                })
+                .setNegativeButton(L.t("Annuler", "Cancel"), null)
+                .show();
+    }
+
+    private void goalModeRefused(int res) {
+        Toast.makeText(this, res == Prefs.MODE_ONCE_A_DAY
+                ? L.t("Déjà changé aujourd'hui : réessaie demain.", "Already changed today: try again tomorrow.")
+                : L.t("Pendant le verrou, tu peux seulement passer à « Les deux ».", "While locked you can only switch to “Both”."),
+                Toast.LENGTH_LONG).show();
     }
 
     /** Blocking problem before starting a lock; null if everything is fine. */

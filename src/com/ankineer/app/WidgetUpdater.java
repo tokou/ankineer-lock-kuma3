@@ -96,7 +96,7 @@ final class WidgetUpdater {
         GoalChecker.Result r = GoalChecker.snapshot(c);
         WidgetRenderer.Data d = new WidgetRenderer.Data();
         d.cards = r.cards; d.goalCards = r.goalCards; d.minutes = r.minutes; d.goalMinutes = r.goalMinutes; d.due = r.due;
-        d.fCards = r.fCards; d.fMinutes = r.fMinutes;
+        d.fCards = r.fCards; d.fMinutes = r.fMinutes; d.fDaily = r.dailyFraction();
         boolean base = Prefs.baseLocked(c);
         if (!GoalChecker.isAnkiInstalled(c) || !GoalChecker.hasPermission(c)) {
             d.state = WidgetRenderer.STATE_NO_DATA;
@@ -140,7 +140,7 @@ final class WidgetUpdater {
         StringBuilder s = new StringBuilder();
         s.append(Prefs.homeWidgetStyle(c)).append(L.en).append('|').append(d.state).append('|').append(d.cards).append('/').append(d.goalCards)
                 .append('|').append(d.minutes).append('/').append(d.goalMinutes).append('|').append(d.sessionLeft).append('|')
-                .append(d.emergencyLeft).append('|').append(d.streak).append('|').append(Math.round(d.fSession * 100));
+                .append(d.emergencyLeft).append('|').append(d.streak).append('|').append(Math.round(d.fSession * 100)).append('|').append(Math.round(d.fDaily * 100));
         for (int i = 0; i < 7; i++) s.append(',').append(d.weekCards[i]).append(d.weekMet[i] ? '+' : '-');
         return s.toString();
     }

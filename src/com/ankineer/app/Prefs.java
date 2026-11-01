@@ -12,11 +12,18 @@ import java.util.Set;
 /** Settings and lock state (daily goal, session, emergency, statistics, widget, language, theme). */
 final class Prefs {
     /** Minimum daily goal thresholds: they can be raised, never lowered below these. */
-    static final int MIN_DAILY_CARDS = 50;
-    static final int MIN_DAILY_MINUTES = 15;
+    static final int MIN_DAILY_CARDS = 25;
+    static final int MIN_DAILY_MINUTES = 10;
+
+    /** Daily goal mode: cards only, minutes only, or both thresholds. */
+    static final String GOAL_BOTH = "both";
+    static final String GOAL_CARDS = "cards";
+    static final String GOAL_MINUTES = "minutes";
 
     static final String SESSION_CARDS = "cards";
     static final String SESSION_MINUTES = "minutes";
+    /** Session: finish every due card of the chosen deck (or of all decks). */
+    static final String SESSION_DECK = "deck";
 
     static final long EMERGENCY_WAIT_MS = 5 * 60 * 1000L;
     static final long EMERGENCY_DURATION_MS = 20 * 60 * 1000L;
@@ -56,7 +63,34 @@ final class Prefs {
         return new SimpleDateFormat(L.en ? "EEE d MMM, HH:mm" : "EEE d MMM à HH:mm", L.en ? Locale.ENGLISH : Locale.FRENCH).format(new Date(t));
     }
 
-    // ---- Daily goal: cards AND minutes (+ due cards as an option) ----
+    // ---- Daily goal: cards and/or minutes (+ due cards as an option) ----
+    static String goalMode(Context c) {
+        String m = sp(c).getString("goalMode", GOAL_BOTH);
+        return GOAL_CARDS.equals(m) || GOAL_MINUTES.equals(m) ? m : GOAL_BOTH;
+    }
+    static boolean needsCards(Context c) { return !GOAL_MINUTES.equals(goalMode(c)); }
+    static boolean needsMinutes(Context c) { return !GOAL_CARDS.equals(goalMode(c)); }
+    /** The goal mode was already changed today (once per day). Immune to clock changes. */
+    static boolean goalModeChangedToday(Context c) {
+        SharedPreferences p = sp(c);
+        return today().equals(p.getString("goalModeDay", "")) || Clock.carriesOver(p.getLong("goalModeUp", 0));
+    }
+
+    static final int MODE_OK = 0, MODE_SAME = 1, MODE_ONCE_A_DAY = 2, MODE_LOCKED = 3;
+
+    /**
+     * Changes the goal mode: once per day. While locked, only "both" (stricter) is allowed:
+     * switching to a single criterion relaxes the goal, so it needs the phone to be free.
+     */
+    static synchronized int setGoalMode(Context c, String mode) {
+        if (!GOAL_CARDS.equals(mode) && !GOAL_MINUTES.equals(mode)) mode = GOAL_BOTH;
+        if (mode.equals(goalMode(c))) return MODE_SAME;
+        if (goalModeChangedToday(c)) return MODE_ONCE_A_DAY;
+        if (!GOAL_BOTH.equals(mode) && !isEditable(c)) return MODE_LOCKED;
+        sp(c).edit().putString("goalMode", mode).putString("goalModeDay", today()).putLong("goalModeUp", Clock.uptime()).apply();
+        return MODE_OK;
+    }
+
     static int dailyCards(Context c) { return Math.max(MIN_DAILY_CARDS, sp(c).getInt("dailyCards", MIN_DAILY_CARDS)); }
     static void setDailyCards(Context c, int n) { sp(c).edit().putInt("dailyCards", Math.max(MIN_DAILY_CARDS, n)).apply(); }
     static int dailyMinutes(Context c) { return Math.max(MIN_DAILY_MINUTES, sp(c).getInt("dailyMinutes", MIN_DAILY_MINUTES)); }
@@ -87,10 +121,11 @@ final class Prefs {
 
     /** Identifies the current goal: making it stricter cancels an already recorded "goal reached". */
     static String goalSignature(Context c) {
-        return "d3:" + dailyCards(c) + ":" + dailyMinutes(c) + ":" + (dueRequired(c) ? 1 : 0) + ":" + (dueSufficient(c) ? 1 : 0);
+        String mode = GOAL_BOTH.equals(goalMode(c)) ? "d3:" : "d4:" + goalMode(c) + ":";      // "both" keeps the v1 signature
+        return mode + dailyCards(c) + ":" + dailyMinutes(c) + ":" + (dueRequired(c) ? 1 : 0) + ":" + (dueSufficient(c) ? 1 : 0);
     }
 
-    // ---- Session: one-off goal (cards or minutes) that locks until it ends ----
+    // ---- Session: one-off goal (cards, minutes or a whole deck) on all decks or one deck, locks until it ends ----
     static boolean sessionActive(Context c) { return sp(c).getBoolean("sessOn", false); }
     static String sessionType(Context c) { return sp(c).getString("sessType", SESSION_CARDS); }
     static int sessionTarget(Context c) { return sp(c).getInt("sessTarget", 20); }
@@ -98,27 +133,39 @@ final class Prefs {
     static int sessionBaseMinutes(Context c) { return sp(c).getInt("sessBaseMin", 0); }
     static String sessionDay(Context c) { return sp(c).getString("sessDay", ""); }
     static long sessionStartedAt(Context c) { return sp(c).getLong("sessStart", 0); }
+    /** Deck of the session: 0 = all decks. */
+    static long sessionDeckId(Context c) { return sp(c).getLong("sessDeck", 0); }
+    static String sessionDeckName(Context c) { return sp(c).getString("sessDeckName", ""); }
+    /** Due cards of the session's deck when it started (-1 = unknown). */
+    static int sessionDeckBase(Context c) { return sp(c).getInt("sessDeckBase", -1); }
+    /** Deck chosen last time (pre-fills the form). */
+    static long lastSessionDeckId(Context c) { return sp(c).getLong("sessLastDeck", 0); }
+    static String lastSessionDeckName(Context c) { return sp(c).getString("sessLastDeckName", ""); }
+    static void setLastSessionDeck(Context c, long id, String name) {
+        sp(c).edit().putLong("sessLastDeck", id).putString("sessLastDeckName", name == null ? "" : name).apply();
+    }
     /** User's last choice (pre-fills the form). */
     static int lastSessionValue(Context c, String type) {
         return sp(c).getInt(SESSION_MINUTES.equals(type) ? "sessLastMin" : "sessLastCards", SESSION_MINUTES.equals(type) ? 25 : 30);
     }
 
-    static void startSession(Context c, String type, int target, int baseCards, int baseMinutes) {
+    static void startSession(Context c, String type, int target, int baseCards, int baseMinutes, long deckId, String deckName, int baseDue) {
         sp(c).edit().putBoolean("sessOn", true).putString("sessType", type).putInt("sessTarget", target)
                 .putInt("sessBaseCards", baseCards).putInt("sessBaseMin", baseMinutes)
+                .putLong("sessDeck", deckId).putString("sessDeckName", deckName == null ? "" : deckName).putInt("sessDeckBase", baseDue)
                 .putString("sessDay", today()).putLong("sessStart", System.currentTimeMillis())
-                .putInt(SESSION_MINUTES.equals(type) ? "sessLastMin" : "sessLastCards", target).apply();
+                .putInt(SESSION_MINUTES.equals(type) ? "sessLastMin" : SESSION_DECK.equals(type) ? "sessLastDeckDue" : "sessLastCards", target).apply();
     }
 
     /** Progress read from history for the session started at {@code start} (ms, wall time). */
-    static void saveSessionProgress(Context c, long start, int cards, int minutes) {
-        sp(c).edit().putLong("sessProgStart", start).putInt("sessProgCards", cards).putInt("sessProgMin", minutes).apply();
+    static void saveSessionProgress(Context c, long start, int cards, int minutes, int due) {
+        sp(c).edit().putLong("sessProgStart", start).putInt("sessProgCards", cards).putInt("sessProgMin", minutes).putInt("sessProgDue", due).apply();
     }
-    /** {cards, minutes} of the running session, or null if not read yet. */
+    /** {cards, minutes, due cards left in the deck (-1 = unknown)} of the running session, or null if not read yet. */
     static int[] sessionProgress(Context c) {
         SharedPreferences p = sp(c);
         if (p.getLong("sessProgStart", -1) != sessionStartedAt(c)) return null;
-        return new int[]{p.getInt("sessProgCards", 0), p.getInt("sessProgMin", 0)};
+        return new int[]{p.getInt("sessProgCards", 0), p.getInt("sessProgMin", 0), p.getInt("sessProgDue", -1)};
     }
 
     static void endSession(Context c, boolean completed) {
@@ -204,62 +251,6 @@ final class Prefs {
         if (today().equals(sp(c).getString("stopDay", ""))) return false;
         setArmed(c, true);
         return true;
-    }
-
-    // ---- Uninstall protection (option): stops only after a chosen delay
-    /** Stop delays offered, in days. */
-    static final int[] PROTECT_DELAYS = {1, 3, 7, 30};
-
-    /** Chosen stop delay (days): 1 by default. */
-    static int protectDelayDays(Context c) {
-        int d = sp(c).getInt("protectDays", 1);
-        for (int v : PROTECT_DELAYS) if (v == d) return d;
-        return 1;
-    }
-    static long protectDelayMs(Context c) { return protectDelayDays(c) * 24L * 3600000L; }
-
-    /**
-     * Changes the stop delay. While the protection is on, it can only be made longer (a stop already
-     * requested is pushed back accordingly). Returns false if refused.
-     */
-    static synchronized boolean setProtectDelayDays(Context c, int days) {
-        boolean valid = false;
-        for (int v : PROTECT_DELAYS) if (v == days) valid = true;
-        if (!valid) return false;
-        if (protectForever(c) && days < protectDelayDays(c)) return false;
-        sp(c).edit().putInt("protectDays", days).apply();
-        return true;
-    }
-
-    /**
-     * On? A stop request only takes effect after the chosen delay. Immune to clock changes:
-     * if the time is set by hand, the delay must also have passed in real powered-on time.
-     */
-    static synchronized boolean protectForever(Context c) {
-        SharedPreferences p = sp(c);
-        if (!p.getBoolean("protect", false)) return false;
-        long off = p.getLong("protectOffAt", 0);
-        if (off > 0) {
-            long offUp = p.getLong("protectOffUp", 0), delay = protectDelayMs(c);
-            boolean elapsed = Clock.now() >= off + delay
-                    && (Clock.autoTime() || Clock.uptime() - offUp >= delay);
-            if (elapsed) {
-                p.edit().putBoolean("protect", false).remove("protectOffAt").remove("protectOffUp").apply();
-                return false;
-            }
-        }
-        return true;
-    }
-    static void setProtectForever(Context c) {
-        sp(c).edit().putBoolean("protect", true).remove("protectOffAt").remove("protectOffUp").apply();
-    }
-    static void requestProtectOff(Context c) {
-        sp(c).edit().putLong("protectOffAt", Clock.now()).putLong("protectOffUp", Clock.uptime()).apply();
-    }
-    /** (Trusted) time at which the protection will stop, or 0 if no stop is requested. */
-    static long protectOffTime(Context c) {
-        long off = sp(c).getLong("protectOffAt", 0);
-        return off > 0 && sp(c).getBoolean("protect", false) ? off + protectDelayMs(c) : 0;
     }
 
     static long testUntil(Context c) { return sp(c).getLong("testUntil", 0); }

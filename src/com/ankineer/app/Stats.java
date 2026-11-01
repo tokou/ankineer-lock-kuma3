@@ -68,6 +68,7 @@ final class Stats {
             int r = GoalChecker.retentionToday(c), rn = GoalChecker.retentionTodayCount(c);
             if (e.optInt("c", -1) == cards && e.optInt("m", -1) == minutes && e.optBoolean("met", false) == (met || e.optBoolean("met", false))
                     && e.optInt("gc", -1) == Prefs.dailyCards(c) && e.optInt("gm", -1) == Prefs.dailyMinutes(c)
+                    && Prefs.goalMode(c).equals(e.optString("gmode", Prefs.GOAL_BOTH))
                     && e.optInt("r", -2) == r && e.optInt("rn", -1) == rn) return;   // nothing new
             e.put("r", r);
             e.put("rn", rn);
@@ -76,15 +77,22 @@ final class Stats {
             e.put("met", met || e.optBoolean("met", false));
             e.put("gc", Prefs.dailyCards(c));
             e.put("gm", Prefs.dailyMinutes(c));
+            e.put("gmode", Prefs.goalMode(c));
             e.remove("pre");
             save(c, all);
         } catch (Exception ignored) {}
     }
 
+    /** Thresholds reached for a goal mode (cards, minutes or both). */
+    static boolean reached(String mode, int cards, int minutes, int goalCards, int goalMinutes) {
+        boolean c = cards >= goalCards, m = minutes >= goalMinutes;
+        return Prefs.GOAL_CARDS.equals(mode) ? c : Prefs.GOAL_MINUTES.equals(mode) ? m : c && m;
+    }
+
     static synchronized void addSession(Context c) { bump(c, "s"); }
 
     static synchronized void addEmergency(Context c, String type) {
-        bump(c, Emergency.PASSWORD.equals(type) ? "ePwd" : Emergency.EXTREME.equals(type) ? "eXtr" : "eStd");
+        bump(c, Emergency.PASSWORD.equals(type) ? "ePwd" : Emergency.EXTREME.equals(type) ? "eXtr" : Jokers.TYPE.equals(type) ? "eJkr" : "eStd");
     }
 
     private static void bump(Context c, String key) {
@@ -111,7 +119,8 @@ final class Stats {
             // goal reached: recorded by the app, or computed afterwards from AnkiDroid's history
             // (that day's thresholds, or the current thresholds for days before install)
             // today: only the real lock state (due-card options included)
-            d.met = e.optBoolean("met", false) || (!day.equals(Prefs.today()) && d.cards >= d.goalCards && d.minutes >= d.goalMinutes);
+            d.met = e.optBoolean("met", false) || (!day.equals(Prefs.today())
+                    && reached(e.optString("gmode", Prefs.goalMode(c)), d.cards, d.minutes, d.goalCards, d.goalMinutes));
             d.ret = e.optInt("r", -1);
             d.retN = e.optInt("rn", 0);
             d.emStd = e.optInt("eStd", 0);
@@ -182,7 +191,7 @@ final class Stats {
                     } else {
                         e.put("gc", gc);
                         e.put("gm", gm);
-                        e.put("met", e.optBoolean("met", false) || (v[0] >= gc && v[1] >= gm));
+                        e.put("met", e.optBoolean("met", false) || reached(e.optString("gmode", Prefs.goalMode(c)), v[0], v[1], gc, gm));
                     }
                     if (d.compareTo(recent) < 0) e.put("final", true);
                     changed = true;

@@ -24,6 +24,8 @@ final class WidgetRenderer {
         int state;
         int cards, goalCards, minutes, goalMinutes, due = -1;
         float fCards, fMinutes, fSession, fEmergency;
+        /** Daily progress counted by the goal mode (cards, minutes or both). */
+        float fDaily;
         int sessionLeft;
         boolean sessionMinutes;
         String emergencyLeft = "";
@@ -152,7 +154,7 @@ final class WidgetRenderer {
     private static int pct(Data d) {
         if (d.state == STATE_SESSION) return Math.round(d.fSession * 100);
         if (d.state == STATE_FREE) return 100;
-        return Math.round(Math.min(d.fCards, d.fMinutes) * 100);
+        return Math.round(d.fDaily * 100);
     }
 
     // ------------------------------------------------------------------ types
@@ -210,7 +212,7 @@ final class WidgetRenderer {
         float s = Math.min(w, h), cx = w / 2f, cy = h / 2f;
         float R = s / 2f - s * 0.1f, sw = s * 0.085f;
         int col = d.state == STATE_SESSION ? t.session : d.state == STATE_FREE ? t.done : d.state == STATE_EMERGENCY ? t.emergency : t.cards;
-        float f = d.state == STATE_SESSION ? d.fSession : d.state == STATE_FREE ? 1f : d.state == STATE_EMERGENCY ? d.fEmergency : Math.min(d.fCards, d.fMinutes);
+        float f = d.state == STATE_SESSION ? d.fSession : d.state == STATE_FREE ? 1f : d.state == STATE_EMERGENCY ? d.fEmergency : d.fDaily;
         arc(cv, cx, cy, R, sw, f, col, t.track);
         String center = d.state == STATE_FREE ? "✓" : d.state == STATE_SESSION ? String.valueOf(d.sessionLeft)
                 : d.state == STATE_EMERGENCY ? d.emergencyLeft : pct(d) + "%";

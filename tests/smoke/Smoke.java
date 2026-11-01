@@ -176,7 +176,7 @@ public class Smoke {
     }
 
     static void explorePages(final MainActivity a) throws Exception {
-        String[] names = {"Home", "Settings", "Emergency", "Statistics", "Setup", "Update", "About"};
+        String[] names = {"Home", "Settings", "Emergency", "Statistics", "Setup", "Update", "Tutorials", "About"};
         for (int i = 0; i < names.length; i++) {
             final int idx = i;
             step("open page " + names[i], () -> a.show(idx));
@@ -464,8 +464,6 @@ public class Smoke {
         MainActivity a = openApp(null);
         check(Prefs.dueSufficient(a), "“unlock as soon as due cards are done” is not on by default");
         check(Prefs.autoArm(a), "automatic start not on by default");
-        check(!Prefs.protectForever(a), "uninstall protection on by default");
-        check(Prefs.protectDelayDays(a) == 1, "default protection delay ≠ 1 day");
         Prefs.setDueSufficient(a, false);
         check(!Prefs.dueSufficient(a), "“unlock as soon as due cards are done” can't be turned off");
 
@@ -504,15 +502,13 @@ public class Smoke {
         a = openApp(null);
         explorePages(a);
 
-        scenario = "uninstall protection";
+        scenario = "uninstall reflection window";
         Hooks.reset();
         a = openApp(null);
-        Prefs.setProtectForever(a);
-        check(Prefs.protectForever(a), "protection not active");
         final LockService s2 = new LockService();
         step("service", () -> invoke(s2, "onServiceConnected", new Class<?>[0]));
         settle();
-        // Ankineer Lock's App info in Settings, phone free (no lock)
+        // Ankineer Lock's App info in Settings, phone free: no longer blocked
         check(!Prefs.lockActive(a), "lock active in this scenario");
         Hooks.accessibilityWindows.add(window("com.android.settings", true));
         Hooks.foundTexts.add("Ankineer Lock");
@@ -521,22 +517,28 @@ public class Smoke {
         step("App info event", () -> s2.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.android.settings", "com.android.settings.SubSettings")));
         settle();
         step("tick App info", () -> invoke(s2, "onTick", new Class<?>[0]));
-        check(count("globalAction") > before, "Ankineer's App info page not blocked");
-        // same page but without "Ankineer": another app → not blocked
-        Hooks.foundTexts.remove("Ankineer Lock");
-        before = count("globalAction");
-        try { Thread.sleep(800); } catch (InterruptedException ignored) {}
-        step("tick other app", () -> invoke(s2, "onTick", new Class<?>[0]));
-        check(count("globalAction") == before, "another app's info wrongly blocked");
-        // uninstall window
+        check(count("globalAction") == before, "Ankineer's App info page wrongly blocked");
+        // uninstall window: closed, the 3-minute window shows instead
         Hooks.accessibilityWindows.clear();
         Hooks.accessibilityWindows.add(window("com.google.android.packageinstaller", true));
         Hooks.foundTexts.add("Ankineer");
-        step("uninstall event", () -> s2.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.google.android.packageinstaller", "com.android.packageinstaller.UninstallerActivity")));
         before = count("globalAction");
+        int winBefore = count("window+");
+        step("uninstall event", () -> s2.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.google.android.packageinstaller", "com.android.packageinstaller.UninstallerActivity")));
         try { Thread.sleep(800); } catch (InterruptedException ignored) {}
         step("tick uninstall", () -> invoke(s2, "onTick", new Class<?>[0]));
-        check(count("globalAction") > before, "Ankineer uninstall not blocked");
+        check(count("globalAction") > before, "Ankineer uninstall window not closed");
+        check(count("window+") > winBefore, "reflection window not shown");
+        // after the 3 minutes + confirmation: Android's window goes through
+        Prefs.sp(a).edit().putLong("unPassUntil", System.currentTimeMillis() + 60000).apply();
+        check(UninstallOverlay.passActive(a), "uninstall pass not active");
+        step("hide reflection", () -> { Object u = field(s2, "uninstall"); invoke(u, "hide", new Class<?>[0]); });
+        before = count("globalAction");
+        step("uninstall event (pass)", () -> s2.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.google.android.packageinstaller", "com.android.packageinstaller.UninstallerActivity")));
+        try { Thread.sleep(800); } catch (InterruptedException ignored) {}
+        step("tick uninstall (pass)", () -> invoke(s2, "onTick", new Class<?>[0]));
+        check(count("globalAction") == before, "uninstall blocked after the 3 minutes");
+        Prefs.sp(a).edit().remove("unPassUntil").apply();
         // Ankineer update (installer, no "uninstall" word) → allowed
         Hooks.foundTexts.remove("Désinstaller");
         step("update event", () -> s2.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED, "com.google.android.packageinstaller", "com.android.packageinstaller.PackageInstallerActivity")));
@@ -546,34 +548,6 @@ public class Smoke {
         check(count("globalAction") == before, "Ankineer update wrongly blocked");
         Hooks.accessibilityWindows.clear();
         Hooks.foundTexts.clear();
-        // stop: 24 h wait (default delay)
-        Prefs.requestProtectOff(a);
-        check(Prefs.protectForever(a), "protection stopped without waiting 24 h");
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 25 * 3600000L).putLong("protectOffUp", Clock.uptime() - 25 * 3600000L).apply();
-        check(!Prefs.protectForever(a), "protection still on after 24 h");
-        // chosen delay: free when off, only longer when on
-        check(Prefs.setProtectDelayDays(a, 30) && Prefs.setProtectDelayDays(a, 3), "delay can't be changed while protection is off");
-        check(!Prefs.setProtectDelayDays(a, 5), "delay outside the list accepted");
-        Prefs.setProtectForever(a);
-        check(!Prefs.setProtectDelayDays(a, 1), "delay shortened during the protection");
-        check(Prefs.protectDelayDays(a) == 3, "delay changed despite the refusal");
-        check(Prefs.setProtectDelayDays(a, 7), "delay can't be lengthened during the protection");
-        Prefs.requestProtectOff(a);
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 4 * 86400000L).putLong("protectOffUp", Clock.uptime() - 4 * 86400000L).apply();
-        check(Prefs.protectForever(a), "protection stopped before the 7-day delay");
-        // manual time moved forward: the clock alone isn't enough, real powered-on time is needed
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 8 * 86400000L).putLong("protectOffUp", Clock.uptime() - 86400000L).apply();
-        check(Prefs.protectForever(a) || Clock.autoTime(), "manual time moved forward: protection stopped before the real delay");
-        // lengthening during a requested stop pushes the stop back
-        Prefs.setProtectForever(a);
-        Prefs.requestProtectOff(a);
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 5 * 86400000L).putLong("protectOffUp", Clock.uptime() - 5 * 86400000L).apply();
-        check(Prefs.setProtectDelayDays(a, 30), "switch to 30 days refused");
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 8 * 86400000L).putLong("protectOffUp", Clock.uptime() - 8 * 86400000L).apply();
-        check(Prefs.protectForever(a), "lengthening the delay didn't push back the stop");
-        Prefs.sp(a).edit().putLong("protectOffAt", Clock.now() - 31 * 86400000L).putLong("protectOffUp", Clock.uptime() - 31 * 86400000L).apply();
-        check(!Prefs.protectForever(a), "protection still on after 30 days");
-        check(Prefs.setProtectDelayDays(a, 1), "delay can't be shortened once the protection is off");
         a = openApp(null);
         explorePages(a);
 
@@ -666,7 +640,35 @@ public class Smoke {
         });
         scenario("session running", () -> {
             Prefs.setArmed(ctx, true);
-            Prefs.startSession(ctx, Prefs.SESSION_MINUTES, 25, 0, 0);
+            Prefs.startSession(ctx, Prefs.SESSION_MINUTES, 25, 0, 0, 0, "", -1);
+        });
+        scenario("deck session running (finish all)", () -> {
+            Prefs.setArmed(ctx, true);
+            Prefs.startSession(ctx, Prefs.SESSION_DECK, 40, 0, 0, 1234L, "Pharmaco::Antibiotiques", 40);
+            Prefs.saveSessionProgress(ctx, Prefs.sessionStartedAt(ctx), 12, 6, 28);
+        });
+        scenario("deck session, deck finished", () -> {
+            Prefs.setArmed(ctx, true);
+            Prefs.startSession(ctx, Prefs.SESSION_CARDS, 100, 0, 0, 1234L, "Pharmaco", 30);
+            Prefs.saveSessionProgress(ctx, Prefs.sessionStartedAt(ctx), 30, 12, 0);
+        });
+        scenario("locked with jokers, cards-only goal", () -> {
+            Prefs.setArmed(ctx, true);
+            Prefs.sp(ctx).edit().putInt("jkCount", 2).putInt("jkWeeks", 1).putInt("jkStreak", 9).apply();
+            Prefs.setGoalMode(ctx, Prefs.GOAL_CARDS);
+            Prefs.saveStudied(ctx, 12, 5);
+        });
+        scenario("tutorials added by an update", () -> {
+            java.util.Set<String> known = new java.util.HashSet<String>();
+            for (int i = 2; i < Tutorials.VIDEOS.length; i++) known.add(Tutorials.VIDEOS[i][0]);
+            Prefs.sp(ctx).edit().putStringSet("tutKnown", known).apply();
+            Tutorials.notifyNew(ctx);
+            if (Tutorials.fresh(ctx).size() != 2) throw new IllegalStateException("2 new tutorials expected, got " + Tutorials.fresh(ctx).size());
+        });
+        scenario("joker running", () -> {
+            Prefs.setArmed(ctx, true);
+            Prefs.sp(ctx).edit().putInt("jkCount", 1).apply();
+            Jokers.use(ctx);
         });
         scenario("code emergency running", () -> {
             Prefs.setArmed(ctx, true);

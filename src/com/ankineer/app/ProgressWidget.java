@@ -14,9 +14,9 @@ import android.view.View;
 import android.view.WindowManager;
 
 /**
- * Small floating circle at the top of the screen:
- *  - daily goal: outer ring = cards, inner ring = minutes, % in the centre;
- *  - session: one ring + what's left in the centre;
+ * Small floating bar at the top of the screen:
+ *  - daily goal: blue bar = cards, purple bar = minutes (only those the goal mode counts), % on the right;
+ *  - session: one orange bar + what's left on the right;
  * tap = open Ankineer · drag = move (position remembered).
  */
 final class ProgressWidget {
@@ -24,7 +24,7 @@ final class ProgressWidget {
 
     private final AccessibilityService svc;
     private final WindowManager wm;
-    private Ring ring;
+    private Pill pill;
     private WindowManager.LayoutParams lp;
 
     ProgressWidget(AccessibilityService s) {
@@ -32,41 +32,42 @@ final class ProgressWidget {
         wm = (WindowManager) s.getSystemService(Context.WINDOW_SERVICE);
     }
 
-    boolean isShowing() { return ring != null; }
+    boolean isShowing() { return pill != null; }
 
+    /** A negative fraction hides that bar (criterion not counted by the goal mode). */
     void showDaily(float fCards, float fMinutes, String center) {
-        if (ring == null && !attach()) return;
-        ring.set(fCards, C_CARDS, fMinutes, C_MINUTES, center, null);
+        if (pill == null && !attach()) return;
+        if (fCards < 0f) pill.set(fMinutes, C_MINUTES, -1f, 0, center, null);
+        else pill.set(fCards, C_CARDS, fMinutes, C_MINUTES, center, null);
     }
 
     void showSession(float f, int remaining, boolean minutes) {
-        if (ring == null && !attach()) return;
-        ring.set(f, C_SESSION, -1f, 0, String.valueOf(remaining), minutes ? "min" : "cartes");
+        if (pill == null && !attach()) return;
+        pill.set(f, C_SESSION, -1f, 0, String.valueOf(remaining), minutes ? "min" : L.t("cartes", "cards"));
     }
 
-    /** Emergency running: red ring emptying + time left (reminder to get back to reviewing). */
+    /** Emergency running: red bar emptying + time left (reminder to get back to reviewing). */
     void showEmergency(float fractionLeft, String left) {
-        if (ring == null && !attach()) return;
-        ring.set(fractionLeft, C_EMERGENCY, -1f, 0, left, null);
+        if (pill == null && !attach()) return;
+        pill.set(fractionLeft, C_EMERGENCY, -1f, 0, left, null);
     }
 
     void showDone() {
-        if (ring == null && !attach()) return;
-        ring.set(1f, C_DONE, -1f, 0, "✓", null);
+        if (pill == null && !attach()) return;
+        pill.set(1f, C_DONE, -1f, 0, "✓", null);
     }
 
     void hide() {
-        if (ring != null) {
-            try { wm.removeView(ring); } catch (Exception ignored) {}
-            ring = null;
+        if (pill != null) {
+            try { wm.removeView(pill); } catch (Exception ignored) {}
+            pill = null;
         }
     }
 
     private boolean attach() {
         final Context c = svc;
-        ring = new Ring(c);
-        final int size = Ui.dp(c, 52);
-        lp = new WindowManager.LayoutParams(size, size,
+        pill = new Pill(c);
+        lp = new WindowManager.LayoutParams(Ui.dp(c, 176), Ui.dp(c, 32),
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -77,7 +78,7 @@ final class ProgressWidget {
         int y = Prefs.widgetY(c);
         lp.y = y >= 0 ? y : statusBarHeight(c) + Ui.dp(c, 6);
 
-        ring.setOnTouchListener(new View.OnTouchListener() {
+        pill.setOnTouchListener(new View.OnTouchListener() {
             float sx, sy;
             int ox, oy;
             boolean moved;
@@ -94,7 +95,7 @@ final class ProgressWidget {
                         if (moved) {
                             lp.x = ox + Math.round(dx);
                             lp.y = Math.max(0, oy + Math.round(dy));
-                            try { wm.updateViewLayout(ring, lp); } catch (Exception ignored) {}
+                            try { wm.updateViewLayout(pill, lp); } catch (Exception ignored) {}
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
@@ -108,10 +109,10 @@ final class ProgressWidget {
         });
 
         try {
-            wm.addView(ring, lp);
+            wm.addView(pill, lp);
             return true;
         } catch (Exception e) {
-            ring = null;
+            pill = null;
             return false;
         }
     }
@@ -127,10 +128,10 @@ final class ProgressWidget {
         return id > 0 ? c.getResources().getDimensionPixelSize(id) : Ui.dp(c, 24);
     }
 
-    /** Hand-drawn progress ring(s): no animation, redrawn only when something changes. */
-    static final class Ring extends View {
+    /** Hand-drawn pill with one or two horizontal progress bars: no animation, redrawn only when something changes. */
+    static final class Pill extends View {
         private final Paint disc = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG),
-                track = new Paint(Paint.ANTI_ALIAS_FLAG), arc = new Paint(Paint.ANTI_ALIAS_FLAG),
+                track = new Paint(Paint.ANTI_ALIAS_FLAG), bar = new Paint(Paint.ANTI_ALIAS_FLAG),
                 txt = new Paint(Paint.ANTI_ALIAS_FLAG), sub = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF r = new RectF();
         private float f1, f2 = -1f;
@@ -138,23 +139,21 @@ final class ProgressWidget {
         private String center = "", unit;
         private final float d;
 
-        Ring(Context c) {
+        Pill(Context c) {
             super(c);
             d = c.getResources().getDisplayMetrics().density;
             disc.setColor(0xF011151C);
             edge.setStyle(Paint.Style.STROKE);
             edge.setStrokeWidth(d);
             edge.setColor(0x40FFFFFF);
-            track.setStyle(Paint.Style.STROKE);
             track.setColor(0x2EFFFFFF);
-            arc.setStyle(Paint.Style.STROKE);
-            arc.setStrokeCap(Paint.Cap.ROUND);
             txt.setColor(0xFFFFFFFF);
-            txt.setTextAlign(Paint.Align.CENTER);
+            txt.setTextAlign(Paint.Align.RIGHT);
             txt.setTypeface(Typeface.DEFAULT_BOLD);
+            txt.setTextSize(12.5f * d);
             sub.setColor(0xB3FFFFFF);
-            sub.setTextAlign(Paint.Align.CENTER);
-            sub.setTextSize(7.5f * d);
+            sub.setTextAlign(Paint.Align.RIGHT);
+            sub.setTextSize(9.5f * d);
         }
 
         void set(float a, int ca, float b, int cb, String centerText, String unitText) {
@@ -166,33 +165,42 @@ final class ProgressWidget {
 
         @Override
         protected void onDraw(Canvas cv) {
-            float w = getWidth(), h = getHeight(), cx = w / 2f, cy = h / 2f, R = Math.min(w, h) / 2f - d;
-            cv.drawCircle(cx, cy, R, disc);
-            cv.drawCircle(cx, cy, R, edge);
-            boolean two = f2 >= 0f;
-            float sw = (two ? 3.6f : 4.4f) * d;
-            track.setStrokeWidth(sw);
-            arc.setStrokeWidth(sw);
-            float r1 = R - sw / 2f - 2.2f * d;
-            drawArc(cv, cx, cy, r1, f1, c1);
-            if (two) drawArc(cv, cx, cy, r1 - sw - 1.6f * d, f2, c2);
+            float w = getWidth(), h = getHeight(), half = h / 2f;
+            r.set(d / 2f, d / 2f, w - d / 2f, h - d / 2f);
+            cv.drawRoundRect(r, half, half, disc);
+            cv.drawRoundRect(r, half, half, edge);
 
-            float inner = two ? r1 - 2 * sw - 1.6f * d : r1 - sw;
-            txt.setTextSize(Math.min(12.5f * d, inner * (center.length() > 3 ? 0.62f : 0.8f)));
-            if (unit == null) {
-                cv.drawText(center, cx, cy - (txt.descent() + txt.ascent()) / 2f, txt);
+            // label on the right: value (+ unit)
+            float pad = 12f * d, right = w - pad, base = half - (txt.descent() + txt.ascent()) / 2f;
+            float unitW = 0f;
+            if (unit != null) {
+                cv.drawText(unit, right, base, sub);
+                unitW = sub.measureText(unit) + 3f * d;
+            }
+            cv.drawText(center, right - unitW, base, txt);
+            float labelW = Math.max(txt.measureText("100%"), txt.measureText(center) + unitW);
+
+            // bars on the left
+            float x0 = pad, x1 = w - pad - labelW - 10f * d;
+            if (x1 <= x0) return;
+            if (f2 >= 0f) {
+                float th = 5f * d, gap = 4f * d, top = half - th - gap / 2f;
+                drawBar(cv, x0, x1, top, th, f1, c1);
+                drawBar(cv, x0, x1, top + th + gap, th, f2, c2);
             } else {
-                cv.drawText(center, cx, cy + 1.2f * d, txt);
-                cv.drawText(unit, cx, cy + 1.2f * d + sub.getTextSize() + 0.6f * d, sub);
+                float th = 8f * d;
+                drawBar(cv, x0, x1, half - th / 2f, th, f1, c1);
             }
         }
 
-        private void drawArc(Canvas cv, float cx, float cy, float rad, float f, int color) {
-            r.set(cx - rad, cy - rad, cx + rad, cy + rad);
-            cv.drawArc(r, 0, 360, false, track);
+        private void drawBar(Canvas cv, float x0, float x1, float top, float th, float f, int color) {
+            float rad = th / 2f;
+            r.set(x0, top, x1, top + th);
+            cv.drawRoundRect(r, rad, rad, track);
             if (f <= 0f) return;
-            arc.setColor(color);
-            cv.drawArc(r, -90, Math.max(4f, 360f * Math.min(1f, f)), false, arc);
+            bar.setColor(color);
+            r.set(x0, top, x0 + Math.max(th, (x1 - x0) * Math.min(1f, f)), top + th);
+            cv.drawRoundRect(r, rad, rad, bar);
         }
     }
 }

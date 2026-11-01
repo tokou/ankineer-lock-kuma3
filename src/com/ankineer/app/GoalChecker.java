@@ -9,8 +9,9 @@ import org.json.JSONArray;
 
 /**
  * Progress read from AnkiDroid (official API):
- *  - daily goal: cards AND minutes (thresholds ≥ 50 / 15), + "0 due cards" if enabled;
- *  - session: one-off goal in cards or minutes, counted from its start.
+ *  - daily goal: cards and/or minutes (goal mode, thresholds ≥ 25 / 10), + "0 due cards" if enabled;
+ *  - session: one-off goal in cards, minutes or "finish the deck", on all decks or one deck, counted from its start
+ *    (a deck session also ends as soon as that deck has no due card left).
  * check() reads AnkiDroid (call it off the main thread); snapshot() only re-reads memory.
  */
 final class GoalChecker {
@@ -23,6 +24,8 @@ final class GoalChecker {
         String error;
         int cards, minutes, due = -1;
         int goalCards, goalMinutes;
+        /** Which thresholds count (goal mode). */
+        boolean needCards = true, needMinutes = true;
         boolean dueRequired, dueSufficient;
         /** Unlocked because all due cards are done (option). */
         boolean byDue;
@@ -34,6 +37,16 @@ final class GoalChecker {
         int sessionDone, sessionTarget;
         float fSession;
         boolean sessionMet;
+        /** Session deck name ("" = all decks) and due cards left in it (-1 = unknown). */
+        String sessionDeck = "";
+        int sessionDue = -1;
+        /** The session ended because its deck has no due card left. */
+        boolean sessionDeckDone;
+
+        /** Least advanced of the criteria that count today (goal mode). */
+        float dailyFraction() {
+            return needCards && needMinutes ? Math.min(fCards, fMinutes) : needCards ? fCards : fMinutes;
+        }
 
         /** Fraction shown (session if running, otherwise the least advanced criterion of the day). */
         float fraction;
@@ -57,6 +70,64 @@ final class GoalChecker {
     }
 
     // ------------------------------------------------------------------ lectures AnkiDroid
+
+    /** An AnkiDroid deck and its due cards today (learning + reviews + new, subdecks included). */
+    static final class Deck {
+        long id;
+        String name;
+        int due;
+    }
+
+    /** Every deck (subdecks included, "Parent::Child" names), sorted by name. */
+    static java.util.List<Deck> decks(Context c) throws Exception {
+        Uri uri = Uri.parse("content://" + AUTHORITY + "/decks");
+        Cursor cur = c.getContentResolver().query(uri, null, null, null, null);
+        if (cur == null) throw new Exception("AnkiDroid n'a pas répondu");
+        java.util.List<Deck> out = new java.util.ArrayList<Deck>();
+        try {
+            int nameIdx = cur.getColumnIndex("deck_name"), idIdx = cur.getColumnIndex("deck_id"), countIdx = cur.getColumnIndex("deck_count");
+            if (idIdx < 0 || nameIdx < 0) throw new Exception("liste des decks indisponible");
+            while (cur.moveToNext()) {
+                Deck d = new Deck();
+                d.id = cur.getLong(idIdx);
+                d.name = cur.getString(nameIdx);
+                if (d.id == 0 || d.name == null || d.name.trim().length() == 0) continue;
+                String counts = countIdx >= 0 ? cur.getString(countIdx) : null;
+                if (counts != null) {
+                    JSONArray arr = new JSONArray(counts);
+                    for (int i = 0; i < arr.length(); i++) d.due += arr.optInt(i, 0);
+                }
+                out.add(d);
+            }
+        } finally {
+            cur.close();
+        }
+        java.util.Collections.sort(out, new java.util.Comparator<Deck>() {
+            @Override public int compare(Deck x, Deck y) { return x.name.compareToIgnoreCase(y.name); }
+        });
+        return out;
+    }
+
+    /** Due cards of a deck (its subdecks included); 0 = all decks. */
+    static int deckDue(Context c, long deckId) throws Exception {
+        if (deckId == 0) return totalDue(c);
+        for (Deck d : decks(c)) if (d.id == deckId) return d.due;
+        throw new Exception("deck introuvable");
+    }
+
+    /** SQL filter on revlog for a deck and its subdecks (filtered decks included); "" = all decks. */
+    private static String deckFilter(Context c, long deckId) throws Exception {
+        if (deckId == 0) return "";
+        String name = null;
+        java.util.List<Deck> all = decks(c);
+        for (Deck d : all) if (d.id == deckId) name = d.name;
+        if (name == null) throw new Exception("deck introuvable");
+        StringBuilder ids = new StringBuilder();
+        for (Deck d : all) {
+            if (d.name.equals(name) || d.name.startsWith(name + "::")) ids.append(ids.length() > 0 ? "," : "").append(d.id);
+        }
+        return " AND cid IN (SELECT id FROM cards WHERE did IN (" + ids + ") OR odid IN (" + ids + "))";
+    }
 
     /** Total due cards today (learning + reviews + new) across root decks. */
     static int totalDue(Context c) throws Exception {
@@ -131,8 +202,11 @@ final class GoalChecker {
     }
 
     /** {cards, minutes} studied between two instants (ms), from AnkiDroid's history. */
-    static int[] studiedBetween(Context c, long fromMs, long toMs) throws Exception {
-        String where = "FROM revlog WHERE id > " + fromMs + " AND id <= " + toMs + " AND ease > 0";
+    static int[] studiedBetween(Context c, long fromMs, long toMs) throws Exception { return studiedBetween(c, fromMs, toMs, 0); }
+
+    /** Same, counting only one deck and its subdecks (0 = all decks). */
+    static int[] studiedBetween(Context c, long fromMs, long toMs, long deckId) throws Exception {
+        String where = "FROM revlog WHERE id > " + fromMs + " AND id <= " + toMs + " AND ease > 0" + deckFilter(c, deckId);
         return new int[]{revlogValue(c, "SELECT count() " + where),
                 revlogValue(c, "SELECT coalesce(sum(time), 0) / 60000 " + where)};
     }
@@ -197,9 +271,11 @@ final class GoalChecker {
     static void readSession(Context c) {
         if (!Prefs.sessionActive(c)) return;
         try {
-            long start = Prefs.sessionStartedAt(c);
-            int[] v = studiedBetween(c, start, Long.MAX_VALUE / 4);
-            Prefs.saveSessionProgress(c, start, v[0], v[1]);
+            long start = Prefs.sessionStartedAt(c), deck = Prefs.sessionDeckId(c);
+            int[] v = studiedBetween(c, start, Long.MAX_VALUE / 4, deck);
+            int due = -1;
+            try { due = deckDue(c, deck); } catch (Exception ignored) {}
+            Prefs.saveSessionProgress(c, start, v[0], v[1], due);
         } catch (Exception ignored) {}
     }
 
@@ -258,7 +334,11 @@ final class GoalChecker {
         }
         Result r = snapshot(c, error);
         Prefs.saveStatus(c, r.text);
-        if (r.apiOk) Stats.recordToday(c, r.cards, r.minutes, r.dailyMet);
+        if (r.apiOk) {
+            Stats.recordToday(c, r.cards, r.minutes, r.dailyMet);
+            int earned = Jokers.update(c, r.dailyMet);
+            if (earned > 0) Reminders.jokerEarned(c, earned);
+        }
         WidgetUpdater.updateAll(c, false);          // home-screen widgets (nothing if unchanged)
         return r;
     }
@@ -282,13 +362,15 @@ final class GoalChecker {
         r.due = Prefs.dueToday(c);
         r.fCards = Math.min(1f, r.cards / (float) r.goalCards);
         r.fMinutes = Math.min(1f, r.minutes / (float) r.goalMinutes);
+        r.needCards = Prefs.needsCards(c);
+        r.needMinutes = Prefs.needsMinutes(c);
         boolean dueOk = !r.dueRequired || r.due == 0;
-        boolean thresholds = r.cards >= r.goalCards && r.minutes >= r.goalMinutes && dueOk;
+        boolean thresholds = (!r.needCards || r.cards >= r.goalCards) && (!r.needMinutes || r.minutes >= r.goalMinutes) && dueOk;
         r.byDue = r.dueSufficient && r.due == 0 && !thresholds;
         r.dailyMet = r.apiOk && (thresholds || (r.dueSufficient && r.due == 0));
         if (r.dailyMet) Prefs.markGoalDone(c);
 
-        float daily = Math.min(r.fCards, r.fMinutes);
+        float daily = r.dailyFraction();
         if (r.byDue && r.apiOk) daily = 1f;
         if (r.dueRequired) {
             int base = Prefs.dueBaseline(c, Math.max(0, r.due));
@@ -301,17 +383,27 @@ final class GoalChecker {
             r.session = true;
             r.sessionType = Prefs.sessionType(c);
             r.sessionTarget = Math.max(1, Prefs.sessionTarget(c));
+            r.sessionDeck = Prefs.sessionDeckName(c);
             boolean sameDay = Prefs.today().equals(Prefs.sessionDay(c));
-            boolean minutes = Prefs.SESSION_MINUTES.equals(r.sessionType);
+            boolean minutes = Prefs.SESSION_MINUTES.equals(r.sessionType), wholeDeck = Prefs.SESSION_DECK.equals(r.sessionType);
             int[] prog = Prefs.sessionProgress(c);
-            if (prog != null) {
+            int baseDue = Prefs.sessionDeckBase(c);
+            r.sessionDue = prog != null ? prog[2] : -1;
+            if (wholeDeck) {
+                // target = due cards when it started; done = how many of them are gone
+                r.sessionTarget = Math.max(1, baseDue);
+                int left = r.sessionDue >= 0 ? r.sessionDue : Math.max(0, baseDue);
+                r.sessionDone = Math.max(0, Math.min(r.sessionTarget, r.sessionTarget - left));
+            } else if (prog != null) {
                 r.sessionDone = minutes ? prog[1] : prog[0];          // history since the start of the session
             } else {
                 int base = sameDay ? (minutes ? Prefs.sessionBaseMinutes(c) : Prefs.sessionBaseCards(c)) : 0;
                 r.sessionDone = Math.max(0, (minutes ? r.minutes : r.cards) - base);
             }
-            r.fSession = Math.min(1f, r.sessionDone / (float) r.sessionTarget);
-            r.sessionMet = r.apiOk && r.sessionDone >= r.sessionTarget;
+            // the deck is finished (it had due cards at the start): the session ends too
+            r.sessionDeckDone = r.apiOk && baseDue > 0 && r.sessionDue == 0;
+            r.fSession = r.sessionDeckDone ? 1f : Math.min(1f, r.sessionDone / (float) r.sessionTarget);
+            r.sessionMet = r.apiOk && (r.sessionDone >= r.sessionTarget || r.sessionDeckDone);
             if (r.sessionMet) {
                 synchronized (GoalChecker.class) {          // a finished session is counted only once
                     if (Prefs.sessionActive(c)) {
@@ -321,13 +413,15 @@ final class GoalChecker {
                 }
             }
             t.append("Session : ").append(Math.min(r.sessionDone, r.sessionTarget)).append(" / ").append(r.sessionTarget)
-                    .append(minutes ? " min" : L.t(" cartes", " cards")).append('\n');
+                    .append(minutes ? " min" : wholeDeck ? L.t(" cartes dues", " due cards") : L.t(" cartes", " cards"))
+                    .append(r.sessionDeck.length() > 0 ? "  ·  📚 " + r.sessionDeck : "").append('\n');
             r.fraction = r.fSession;
         } else {
             r.fraction = daily;
         }
-        t.append(L.t("Cartes ", "Cards ")).append(r.cards).append(" / ").append(r.goalCards)
-                .append("  ·  Minutes ").append(r.minutes).append(" / ").append(r.goalMinutes);
+        if (r.needCards) t.append(L.t("Cartes ", "Cards ")).append(r.cards).append(" / ").append(r.goalCards);
+        if (r.needCards && r.needMinutes) t.append("  ·  ");
+        if (r.needMinutes) t.append("Minutes ").append(r.minutes).append(" / ").append(r.goalMinutes);
         if (r.dueRequired || r.dueSufficient) t.append(L.t("  ·  Dues ", "  ·  Due ")).append(r.due < 0 ? "?" : String.valueOf(r.due));
         if (r.byDue && r.apiOk) t.append(L.t("\nToutes les cartes dues sont faites ✓", "\nAll due cards are done ✓"));
         if (error != null) t.append('\n').append(error);

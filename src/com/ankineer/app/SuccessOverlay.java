@@ -91,7 +91,9 @@ final class SuccessOverlay {
         String detail;
         if (kind == SESSION && r != null) {
             boolean min = Prefs.SESSION_MINUTES.equals(r.sessionType);
-            detail = r.sessionTarget + (min ? " minutes" : L.t(" cartes", " cards")) + L.t(" faites. Bravo !", " done. Well done!");
+            detail = r.sessionDeckDone ? L.t("Paquet terminé : plus aucune carte due", "Deck finished: no due card left")
+                    + (r.sessionDeck.length() > 0 ? " (" + r.sessionDeck.replace("::", " › ") + ")" : "") + L.t(". Bravo !", ". Well done!")
+                    : r.sessionTarget + (min ? " minutes" : L.t(" cartes", " cards")) + L.t(" faites. Bravo !", " done. Well done!");
         } else if (r != null) {
             detail = r.cards + L.t(" cartes · ", " cards · ") + r.minutes + " min"
                     + (Prefs.armed(svc) ? L.t("\nTon téléphone est libre jusqu'à demain.", "\nYour phone is free until tomorrow.") : "");

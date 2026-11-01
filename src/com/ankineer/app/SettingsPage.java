@@ -18,13 +18,12 @@ final class SettingsPage implements MainActivity.Page {
     private final View root;
     private EditText cardsEt, minutesEt;
     private TextView savedTv, wlTv;
-    private Switch swDueSufficient, swDueRequired, swDark, swWidget, swStrict, swRem, swRemDue, swRemGoal, swRemQuote, swAuto, swProtect, swCelebrate;
-    private TextView protectTv;
+    private Switch swDueSufficient, swDueRequired, swDark, swWidget, swStrict, swRem, swRemDue, swRemGoal, swRemQuote, swRemWeek, swAuto, swCelebrate;
     private EditText qFromEt, qToEt;
     private TextView remInfo;
     private Button[] styleBtn = new Button[4];
-    private final Button[] delayBtn = new Button[Prefs.PROTECT_DELAYS.length];
     private Button fr, en, apps;
+    private Button[] modeBtn;
     private boolean binding;
 
     SettingsPage(MainActivity act) {
@@ -34,8 +33,10 @@ final class SettingsPage implements MainActivity.Page {
         // ---- daily goal
         a.section(col, L.t("Objectif du jour", "Daily goal"));
         LinearLayout g = Ui.card(a);
-        g.addView(Ui.text(a, L.t("Le téléphone reste verrouillé jusqu'à atteindre LES DEUX seuils.",
-                "Your phone stays locked until you reach BOTH thresholds."), 13, Ui.MUTED, false));
+        g.addView(Ui.text(a, L.t("Ce qui compte pour débloquer", "What counts to unlock"), 14, Ui.TEXT, true));
+        modeBtn = a.goalModeRow(g);
+        a.note(g, L.t("Cartes seulement, minutes seulement, ou les deux seuils. Modifiable une fois par jour ; pendant le verrou, seulement vers « Les deux ».",
+                "Cards only, minutes only, or both thresholds. Can be changed once a day; while locked, only to “Both”."));
         g.addView(Ui.text(a, L.t("Cartes étudiées (minimum ", "Cards studied (minimum ") + Prefs.MIN_DAILY_CARDS + ")", 14, Ui.TEXT, true), Ui.topMargin(a, 12));
         cardsEt = a.numberField(String.valueOf(Prefs.MIN_DAILY_CARDS));
         g.addView(cardsEt, Ui.topMargin(a, 6));
@@ -92,6 +93,8 @@ final class SettingsPage implements MainActivity.Page {
         rm.addView(swRemGoal, Ui.topMargin(a, 12));
         swRemQuote = a.makeSwitch(L.t("Ajouter une citation de motivation", "Add a motivational quote"));
         rm.addView(swRemQuote, Ui.topMargin(a, 12));
+        swRemWeek = a.makeSwitch(L.t("Résumé de la semaine (dimanche soir)", "Weekly summary (Sunday evening)"));
+        rm.addView(swRemWeek, Ui.topMargin(a, 12));
         rm.addView(Ui.text(a, L.t("Heures calmes (aucun rappel) : de … à … h", "Quiet hours (no reminders): from … to … h"), 14, Ui.TEXT, true), Ui.topMargin(a, 16));
         LinearLayout qh = new LinearLayout(a);
         qFromEt = a.numberField("23");
@@ -108,8 +111,10 @@ final class SettingsPage implements MainActivity.Page {
         rm.addView(test);
         remInfo = Ui.text(a, "", 13, Ui.MUTED, false);
         rm.addView(remInfo, Ui.topMargin(a, 8));
-        a.note(rm, L.t("Deux notifications distinctes, au plus une de chaque par heure : « Encore N cartes dues » et « Objectif minimum pas encore atteint ». Elles disparaissent d'elles-mêmes une fois l'objectif atteint.",
-                "Two separate notifications, at most one of each per hour: “Still N due cards” and “Minimum goal not reached yet”. They clear themselves once the goal is reached."));
+        a.note(rm, L.t("Deux notifications distinctes, au plus une de chaque par heure : « Encore N cartes dues » et « Objectif minimum pas encore atteint ». Elles disparaissent d'elles-mêmes une fois l'objectif atteint. "
+                        + "Le dimanche à partir de 18 h : ta semaine (cartes, minutes, jours réussis) comparée à la précédente. « Tester » envoie aussi le résumé.",
+                "Two separate notifications, at most one of each per hour: “Still N due cards” and “Minimum goal not reached yet”. They clear themselves once the goal is reached. "
+                        + "On Sunday from 6 pm: your week (cards, minutes, days reached) compared with the previous one. “Test” also sends the summary."));
         col.addView(rm);
         qSave.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -189,11 +194,11 @@ final class SettingsPage implements MainActivity.Page {
         // ---- lock
         a.section(col, L.t("Verrou", "Lock"));
         LinearLayout lk = Ui.card(a);
-        swWidget = a.makeSwitch(L.t("Cercle de progression en haut de l'écran", "Progress circle at the top of the screen"));
+        swWidget = a.makeSwitch(L.t("Barre de progression en haut de l'écran", "Progress bar at the top of the screen"));
         lk.addView(swWidget);
-        a.note(lk, L.t("Bleu = cartes, violet = minutes, orange = session. Touche-le pour ouvrir Ankineer Lock, glisse-le pour le déplacer.",
-                "Blue = cards, purple = minutes, orange = session. Tap it to open Ankineer Lock, drag it to move it."));
-        swStrict = a.makeSwitch(L.t("Bloquer Paramètres et désinstallation pendant le verrou", "Block Settings and uninstall while locked"));
+        a.note(lk, L.t("Bleu = cartes, violet = minutes, orange = session, rouge = urgence. Touche-la pour ouvrir Ankineer Lock, glisse-la pour la déplacer.",
+                "Blue = cards, purple = minutes, orange = session, red = emergency. Tap it to open Ankineer Lock, drag it to move it."));
+        swStrict = a.makeSwitch(L.t("Bloquer les Paramètres pendant le verrou", "Block Settings while locked"));
         lk.addView(swStrict, Ui.topMargin(a, 14));
         swCelebrate = a.makeSwitch(L.t("Fenêtre de succès quand un objectif est terminé", "Success window when a goal is completed"));
         lk.addView(swCelebrate, Ui.topMargin(a, 14));
@@ -203,24 +208,8 @@ final class SettingsPage implements MainActivity.Page {
                         + "Si tu l'arrêtes à la main, il se relance le lendemain.",
                 "As soon as setup is complete (steps 1, 3, 4 and 6), the lock starts on its own. "
                         + "If you stop it by hand, it starts again the next day."));
-        swProtect = a.makeSwitch(L.t("Protection contre la désinstallation", "Uninstall protection"));
-        lk.addView(swProtect, Ui.topMargin(a, 14));
-        protectTv = a.note(lk, "");
-        lk.addView(Ui.text(a, L.t("Délai avant l'arrêt de la protection", "Delay before the protection stops"), 14, Ui.TEXT, true), Ui.topMargin(a, 12));
-        LinearLayout dl = new LinearLayout(a);
-        for (int i = 0; i < delayBtn.length; i++) {
-            final int days = Prefs.PROTECT_DELAYS[i];
-            delayBtn[i] = a.chip(L.t(days + " j", days + " d"));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(a, 42), 1f);
-            if (i > 0) lp.leftMargin = Ui.dp(a, 8);
-            dl.addView(delayBtn[i], lp);
-            delayBtn[i].setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { chooseDelay(days); }
-            });
-        }
-        lk.addView(dl, Ui.topMargin(a, 8));
-        a.note(lk, L.t("Tant que la protection est active, tu peux seulement rallonger ce délai. Changer l'heure du téléphone ne le raccourcit pas.",
-                "While the protection is on, you can only make this delay longer. Changing the phone's clock doesn't shorten it."));
+        a.note(lk, L.t("Désinstaller Ankineer Lock reste toujours possible : une grande fenêtre te demande d'abord d'y réfléchir pendant 3 minutes.",
+                "Uninstalling Ankineer Lock is always possible: a big window first asks you to think it over for 3 minutes."));
         wlTv = Ui.text(a, "", 14, Ui.MUTED, false);
         lk.addView(wlTv, Ui.topMargin(a, 14));
         apps = Ui.button(a, L.t("Choisir les applications autorisées", "Choose allowed apps"), false);
@@ -293,6 +282,9 @@ final class SettingsPage implements MainActivity.Page {
         swRemQuote.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override public void onCheckedChanged(CompoundButton b, boolean on) { if (!binding) Reminders.setQuoteOn(a, on); }
         });
+        swRemWeek.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(CompoundButton b, boolean on) { if (!binding) Reminders.setWeeklyOn(a, on); }
+        });
         swCelebrate.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override public void onCheckedChanged(CompoundButton b, boolean on) {
                 if (!binding) Prefs.sp(a).edit().putBoolean("celebrate", on).apply();
@@ -306,51 +298,6 @@ final class SettingsPage implements MainActivity.Page {
                 refresh();
             }
         });
-        swProtect.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override public void onCheckedChanged(CompoundButton b, boolean on) {
-                if (binding) return;
-                if (on) {
-                    Prefs.setProtectForever(a);    // strengthening = always allowed (also cancels a requested stop)
-                    Toast.makeText(a, L.t("🔒 Désinstallation bloquée", "🔒 Uninstall blocked"), Toast.LENGTH_SHORT).show();
-                    refresh();
-                    return;
-                }
-                if (!Prefs.isEditable(a)) { refuse(b, true); return; }
-                binding = true;
-                b.setChecked(true);
-                binding = false;
-                new android.app.AlertDialog.Builder(a)
-                        .setTitle(L.t("Arrêter la protection ?", "Stop the protection?"))
-                        .setMessage(L.t("Pour éviter une désinstallation sur un coup de tête, la protection reste active encore ", "To avoid an impulsive uninstall, the protection stays on for ")
-                                + days(Prefs.protectDelayDays(a))
-                                + L.t(", puis s'arrête toute seule. Tu peux annuler en réactivant l'interrupteur.",
-                                ", then stops on its own. You can cancel by turning the switch back on."))
-                        .setPositiveButton(L.t("Arrêter dans ", "Stop in ") + days(Prefs.protectDelayDays(a)), new android.content.DialogInterface.OnClickListener() {
-                            @Override public void onClick(android.content.DialogInterface d, int w) {
-                                Prefs.requestProtectOff(a);
-                                refresh();
-                            }
-                        })
-                        .setNegativeButton(L.t("Garder", "Keep"), null)
-                        .show();
-            }
-        });
-    }
-
-    /** "1 day", "3 days"… */
-    static String days(int n) { return n + (n > 1 ? L.t(" jours", " days") : L.t(" jour", " day")); }
-
-    /** Protection stop delay: any value when it's off, only longer when it's on. */
-    private void chooseDelay(int d) {
-        int cur = Prefs.protectDelayDays(a);
-        if (d == cur) return;
-        if (!Prefs.setProtectDelayDays(a, d)) {
-            Toast.makeText(a, L.t("Protection active : tu peux seulement rallonger le délai.", "Protection on: you can only make the delay longer."),
-                    Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (Prefs.protectForever(a)) Toast.makeText(a, L.t("Délai rallongé : ", "Delay extended: ") + days(d), Toast.LENGTH_SHORT).show();
-        refresh();
     }
 
     /** Android 13+: asks for the notification permission. Returns true if already granted. */
@@ -451,6 +398,7 @@ final class SettingsPage implements MainActivity.Page {
         binding = true;
         if (!cardsEt.hasFocus()) cardsEt.setText(String.valueOf(Prefs.dailyCards(a)));
         if (!minutesEt.hasFocus()) minutesEt.setText(String.valueOf(Prefs.dailyMinutes(a)));
+        a.styleGoalMode(modeBtn);
         swDueSufficient.setChecked(Prefs.dueSufficient(a));
         swDueRequired.setChecked(Prefs.dueRequired(a));
         boolean english = Prefs.english(a);
@@ -468,33 +416,13 @@ final class SettingsPage implements MainActivity.Page {
         swRemDue.setChecked(Reminders.dueOn(a));
         swRemGoal.setChecked(Reminders.goalOn(a));
         swRemQuote.setChecked(Reminders.quoteOn(a));
+        swRemWeek.setChecked(Reminders.weeklyOn(a));
+        Ui.enable(swRemWeek, ron);
         Ui.enable(swRemDue, ron);
         Ui.enable(swRemGoal, ron);
         Ui.enable(swRemQuote, ron);
         swAuto.setChecked(Prefs.autoArm(a));
         swCelebrate.setChecked(Prefs.sp(a).getBoolean("celebrate", true));
-        boolean prot = Prefs.protectForever(a);
-        swProtect.setChecked(prot);
-        long offAt = Prefs.protectOffTime(a);
-        int delay = Prefs.protectDelayDays(a);
-        for (int i = 0; i < delayBtn.length; i++) {
-            int dd = Prefs.PROTECT_DELAYS[i];
-            a.styleChip(delayBtn[i], dd == delay);
-            delayBtn[i].setAlpha(prot && dd < delay ? 0.4f : 1f);     // shorter: refused while it's on
-        }
-        protectTv.setText(!prot
-                ? L.t("Option. Bloque, même téléphone libre : la désinstallation d'Ankineer Lock (écran de désinstallation, Play Store, "
-                        + "Infos de l'appli / Forcer l'arrêt) et le réglage d'accessibilité qui coupe le service. Pour l'arrêter : téléphone libre + ",
-                "Optional. Blocks, even when your phone is free: uninstalling Ankineer Lock (uninstall screen, Play Store, App info / Force stop) "
-                        + "and the accessibility setting that turns the service off. To stop it: phone free + ") + days(delay)
-                + L.t(" d'attente.", " wait.")
-                : offAt > 0 ? L.t("⏳ Protection active, arrêt prévu le ", "⏳ Protection on, stops on ") + Prefs.hhmmDay(offAt)
-                + L.t(" (réactive l'interrupteur pour annuler).", " (turn the switch back on to cancel).")
-                : L.t("🔒 Active : Ankineer Lock ne peut pas être désinstallé ni coupé, même téléphone libre. "
-                        + "Les réglages d'accessibilité sont aussi bloqués.",
-                "🔒 On: Ankineer Lock can't be uninstalled or turned off, even when your phone is free. "
-                        + "Accessibility settings are blocked too."));
-        protectTv.setTextColor(prot ? Ui.GREEN : Ui.MUTED);
         if (!qFromEt.hasFocus()) qFromEt.setText(String.valueOf(Reminders.quietFrom(a)));
         if (!qToEt.hasFocus()) qToEt.setText(String.valueOf(Reminders.quietTo(a)));
         if (!Reminders.permitted(a)) {

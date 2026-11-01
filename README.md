@@ -40,16 +40,25 @@ The numbers are exactly the ones AnkiDroid shows (“Studied X cards in Y minute
 ## ✨ Features
 
 ### 🎯 Daily goal
-The phone stays locked until you reach **both** thresholds: a number of cards (minimum 50) **and** study minutes (minimum 15). You can raise them anytime, and lower them (or reset them to the minimum) only while your phone is free.
+Choose what counts — **cards only** (minimum 25), **minutes only** (minimum 10) or **both** thresholds — on the Home screen or in Settings. The choice can be changed once a day (while locked, only to *Both*). You can raise the thresholds anytime, and lower them (or reset them to the minimum) only while your phone is free.
 
 ### 📚 Due cards
 Two rules: *unlock as soon as all due cards are done* — **on by default**, can be turned off (if nothing is left to review, the thresholds don't apply) — and the optional *also require 0 due cards*. The Home screen shows a progress bar of today's due cards.
 
 ### ⏱ Focus sessions
-A one-off target you set yourself (for example 40 cards or 25 minutes). Everything is locked — even if the daily goal is already reached — until the session is complete. Progress is read from AnkiDroid's history, so it stays exact even past midnight.
+A one-off target you set yourself: pick a deck (or all decks), then cards, minutes or *Finish all* its due cards. Only that deck counts, and the session also ends once the deck is finished. Everything is locked — even if the daily goal is already reached — until the session is complete. Progress is read from AnkiDroid's history, so it stays exact even past midnight.
+
+### 🃏 Jokers
+Every week of streak (7 days in a row with your goal reached) earns a joker: **30 free minutes, even while locked**. Use it from Home or the block screen. Up to 10 in stock.
+
+### 📊 Weekly summary
+Every Sunday evening, a notification compares your week (cards, minutes, days reached, streak) with the previous one.
+
+### 🎬 Tutorials
+☰ → **Tutorials**: every video of [The Ankineer](https://www.youtube.com/@TheAnkineer) YouTube channel, with search and categories. The list is built into the app (no Internet permission) and grows with each update — new videos are marked NEW and announced by a notification.
 
 ### 🏠 Home screen
-Two progress rings (cards and minutes, green once the threshold is reached), the due-card bar, the lock state, the big **Start** button and the session form.
+The goal choice (cards / minutes / both), progress rings for what counts (green once the threshold is reached), the due-card bar, the lock state, the big **Start** button and the session form.
 
 ### 🚨 Emergencies
 For real emergencies only, each once a day, each preceded by a big warning (“this is an exceptional permission — get back to your reviews quickly”):
@@ -59,8 +68,8 @@ For real emergencies only, each once a day, each preceded by a big warning (“t
 Changing the phone's clock does not reset the daily limits. An emergency frees your apps but never lets you stop the lock or lower the goal.
 
 ### 🛡 Protection
-- **Strict mode:** while locked, Android Settings and uninstalling are blocked (battery settings and app updates stay possible).
-- **Uninstall protection** (optional, off by default): even when the phone is free, the uninstall window, the Play Store page, *App info* and the accessibility setting of Ankineer Lock are blocked. Turning it off requires a free phone **and a delay you choose: 1, 3, 7 or 30 days**. While the protection is on, the delay can only be made longer, and changing the phone's clock doesn't shorten it.
+- **Strict mode:** while locked, Android Settings are blocked so the service can't be turned off (battery settings and app updates stay possible).
+- **Think before uninstalling:** uninstalling Ankineer Lock is always possible, but trying it first shows a big warning window with a motivational message and a **3-minute timer**. Play Store and *App info* are never blocked.
 - **Automatic start:** on by default — the lock starts on its own as soon as setup is complete.
 
 ### 🎉 Success window
@@ -76,7 +85,7 @@ Two separate notifications, at most one of each per hour: *“Still N due cards�
 - A calendar of the last 365 days, including the days before you installed the app; tap a day for its cards, minutes and retention.
 
 ### 🧩 Home-screen widgets
-Four widgets — rings (2×2), mini ring (1×1), cards · minutes bars (4×1), week + streak (4×2) — in four styles: dark, light, glass and gradient. A small floating progress circle can also stay at the top of the screen while locked.
+Four widgets — rings (2×2), mini ring (1×1), cards · minutes bars (4×1), week + streak (4×2) — in four styles: dark, light, glass and gradient. A small floating progress bar can also stay at the top of the screen while locked.
 
 <p align="center"><img src="docs/widgets-styles.png" width="620" alt="Widgets in the four styles"></p>
 <p align="center"><img src="docs/widgets-week.png" width="620" alt="Week widget"></p>
@@ -104,7 +113,7 @@ If something goes wrong, the app shows an error message instead of closing, keep
 ## ⚠️ Limitations
 - Not on Google Play (strict rules for accessibility services): distributed through GitHub.
 - Android **safe mode** disables all installed apps, including Ankineer Lock.
-- Settings screens differ between brands: if an uninstall screen is not blocked on your phone, please [open an issue](https://github.com/BONJ37/ankineer-lock/issues/new/choose) with your phone model.
+- Settings screens differ between brands: if the 3-minute uninstall window doesn't show on your phone, please [open an issue](https://github.com/BONJ37/ankineer-lock/issues/new/choose) with your phone model.
 
 ## 🛠 Build from source
 

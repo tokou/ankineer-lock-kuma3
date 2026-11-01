@@ -167,6 +167,7 @@ final class Emergency {
     static String typeLabel(String type) {
         if (PASSWORD.equals(type)) return L.t("code", "code");
         if (EXTREME.equals(type)) return L.t("extrême urgence", "extreme emergency");
+        if (Jokers.TYPE.equals(type)) return L.t("joker 🃏", "joker 🃏");
         return L.t("urgence avec attente", "emergency with wait");
     }
 }

@@ -140,8 +140,8 @@ final class InstallPage implements MainActivity.Page {
                 });
 
         step(col, 6, L.t("Régler ton objectif du jour", "Set your daily goal"),
-                L.t("Minimum 50 cartes et 15 minutes ; tu peux les augmenter. Options des cartes dues, langue et thème sont aussi dans Paramètres.",
-                        "At least 50 cards and 15 minutes; you can raise them. Due-card options, language and theme are in Settings too."),
+                L.t("Minimum 25 cartes et 10 minutes ; tu peux les augmenter et choisir cartes, minutes ou les deux. Options des cartes dues, langue et thème sont aussi dans Paramètres.",
+                        "At least 25 cards and 10 minutes; you can raise them and choose cards, minutes or both. Due-card options, language and theme are in Settings too."),
                 L.t("Ouvrir Paramètres", "Open Settings"), new Runnable() {
                     @Override public void run() { a.show(MainActivity.SETTINGS); }
                 });
