@@ -15,9 +15,9 @@ import org.json.JSONArray;
  * check() reads AnkiDroid (call it off the main thread); snapshot() only re-reads memory.
  */
 final class GoalChecker {
-    static final String ANKI_PKG = "com.ichi2.anki";
-    static final String AUTHORITY = "com.ichi2.anki.flashcards";
-    static final String PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE";
+    static final String ANKI_PKG = "io.github.pedrubik2000.kuma3";
+    static final String AUTHORITY = "io.github.pedrubik2000.kuma3.flashcards";
+    static final String PERMISSION = "io.github.pedrubik2000.kuma3.permission.READ_WRITE_DATABASE";
 
     static final class Result {
         boolean apiOk;

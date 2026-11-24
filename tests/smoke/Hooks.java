@@ -39,7 +39,7 @@ public final class Hooks {
     public static List<Object> accessibilityWindows = new ArrayList<>();
     public static Set<String> foundTexts = new HashSet<>();        // texts "found" by findAccessibilityNodeInfosByText
     public static Set<String> launchablePkgs = new HashSet<>(Arrays.asList(
-            "com.ichi2.anki", "com.google.android.youtube", "com.android.chrome", "com.android.vending", "com.whatsapp", "com.android.settings"));
+            "io.github.pedrubik2000.kuma3", "com.google.android.youtube", "com.android.chrome", "com.android.vending", "com.whatsapp", "com.android.settings"));
     public static long clockOffset = 0;
     public static float density = 2.75f;
     public static byte[] pickedFile = new byte[]{1, 2, 3};

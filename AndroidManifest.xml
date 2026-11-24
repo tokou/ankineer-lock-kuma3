@@ -2,12 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.ankineer.app"
     android:versionCode="18"
-    android:versionName="2.0">
+    android:versionName="2.0-kuma3">
 
     <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
 
-    <!-- Reads AnkiDroid progress (official API) -->
-    <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
+    <!-- Reads kuma3 Anki progress (AnkiDroid ContentProvider API) -->
+    <uses-permission android:name="io.github.pedrubik2000.kuma3.permission.READ_WRITE_DATABASE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Rappels horaires -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -21,7 +21,7 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
     <queries>
-        <package android:name="com.ichi2.anki" />
+        <package android:name="io.github.pedrubik2000.kuma3" />
         <package android:name="com.miui.securitycenter" />
         <package android:name="com.coloros.safecenter" />
         <package android:name="com.oppo.safe" />

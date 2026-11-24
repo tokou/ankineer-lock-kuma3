@@ -12,8 +12,8 @@ import java.util.Set;
 /** Settings and lock state (daily goal, session, emergency, statistics, widget, language, theme). */
 final class Prefs {
     /** Minimum daily goal thresholds: they can be raised, never lowered below these. */
-    static final int MIN_DAILY_CARDS = 25;
-    static final int MIN_DAILY_MINUTES = 10;
+    static final int MIN_DAILY_CARDS = 10;
+    static final int MIN_DAILY_MINUTES = 5;
 
     /** Daily goal mode: cards only, minutes only, or both thresholds. */
     static final String GOAL_BOTH = "both";
@@ -65,7 +65,7 @@ final class Prefs {
 
     // ---- Daily goal: cards and/or minutes (+ due cards as an option) ----
     static String goalMode(Context c) {
-        String m = sp(c).getString("goalMode", GOAL_BOTH);
+        String m = sp(c).getString("goalMode", GOAL_CARDS);
         return GOAL_CARDS.equals(m) || GOAL_MINUTES.equals(m) ? m : GOAL_BOTH;
     }
     static boolean needsCards(Context c) { return !GOAL_MINUTES.equals(goalMode(c)); }
@@ -95,8 +95,8 @@ final class Prefs {
     static void setDailyCards(Context c, int n) { sp(c).edit().putInt("dailyCards", Math.max(MIN_DAILY_CARDS, n)).apply(); }
     static int dailyMinutes(Context c) { return Math.max(MIN_DAILY_MINUTES, sp(c).getInt("dailyMinutes", MIN_DAILY_MINUTES)); }
     static void setDailyMinutes(Context c, int n) { sp(c).edit().putInt("dailyMinutes", Math.max(MIN_DAILY_MINUTES, n)).apply(); }
-    /** Setting (on by default): "0 due cards" is enough to unlock, even if the card/minute thresholds aren't reached. */
-    static boolean dueSufficient(Context c) { return sp(c).getBoolean("dueSufficient", true); }
+    /** Setting (off by default for RWKV-Instant): "0 due cards" is enough to unlock, even if the card/minute thresholds aren't reached. */
+    static boolean dueSufficient(Context c) { return sp(c).getBoolean("dueSufficient", false); }
     static void setDueSufficient(Context c, boolean on) { sp(c).edit().putBoolean("dueSufficient", on).apply(); }
 
     // ---- Apparence ----

@@ -267,7 +267,7 @@ public class Smoke {
                 {"com.google.android.packageinstaller", "com.android.packageinstaller.PackageInstallerActivity"},
                 {"com.google.android.packageinstaller", "com.android.packageinstaller.UninstallerActivity"},
                 {"com.android.vending", "com.google.android.finsky.activities.MainActivity"},
-                {"com.ichi2.anki", "com.ichi2.anki.Reviewer"},
+                {"io.github.pedrubik2000.kuma3", "com.ichi2.anki.Reviewer"},
                 {"com.whatsapp", "com.whatsapp.Main"},
         };
         for (final String[] e : evs) {
@@ -279,7 +279,7 @@ public class Smoke {
         }
         step("event without package (windows)", () -> s.onAccessibilityEvent(event(AccessibilityEvent.TYPE_WINDOWS_CHANGED, null, null)));
         // visible windows: YouTube in picture-in-picture, then the Play Store on Ankineer's page
-        Hooks.accessibilityWindows.add(window("com.ichi2.anki", true));
+        Hooks.accessibilityWindows.add(window("io.github.pedrubik2000.kuma3", true));
         Hooks.accessibilityWindows.add(window("com.google.android.youtube", false));
         for (int i = 0; i < 3; i++) step("tick (PiP)", () -> invoke(s, "onTick", new Class<?>[0]));
         Hooks.accessibilityWindows.clear();
@@ -462,8 +462,10 @@ public class Smoke {
         scenario = "default settings";
         Hooks.reset();
         MainActivity a = openApp(null);
-        check(Prefs.dueSufficient(a), "“unlock as soon as due cards are done” is not on by default");
+        check(!Prefs.dueSufficient(a), "“unlock as soon as due cards are done” should be off by default for RWKV");
         check(Prefs.autoArm(a), "automatic start not on by default");
+        Prefs.setDueSufficient(a, true);
+        check(Prefs.dueSufficient(a), "“unlock as soon as due cards are done” can't be turned on");
         Prefs.setDueSufficient(a, false);
         check(!Prefs.dueSufficient(a), "“unlock as soon as due cards are done” can't be turned off");
 
